@@ -43,6 +43,9 @@ type Config struct {
 	TTLDays uint `mapstructure:"ttl_days"`
 	// TTL is The data time-to-live example 30m, 48h. 0 means no ttl.
 	TTL time.Duration `mapstructure:"ttl"`
+
+	// Sharded is the configuration to allow the DDL creation of tables
+	Sharded bool `mapstructure:"sharded"`
 }
 
 const defaultDatabase = "default"

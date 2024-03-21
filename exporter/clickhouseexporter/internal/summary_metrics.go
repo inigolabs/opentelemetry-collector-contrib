@@ -14,10 +14,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
+var (
 	// language=ClickHouse SQL
 	createSummaryTableSQL = `
-CREATE TABLE IF NOT EXISTS %s_summary (
+CREATE TABLE IF NOT EXISTS %s_summary ON CLUSTER '{cluster}' (
     ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
     ResourceSchemaUrl String CODEC(ZSTD(1)),
     ScopeName String CODEC(ZSTD(1)),

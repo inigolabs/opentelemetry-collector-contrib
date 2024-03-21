@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2" // For register database driver.
@@ -125,10 +126,10 @@ func attributesToMap(attributes pcommon.Map) map[string]string {
 	return m
 }
 
-const (
+var (
 	// language=ClickHouse SQL
 	createLogsTableSQL = `
-CREATE TABLE IF NOT EXISTS %s (
+CREATE TABLE IF NOT EXISTS %s ON CLUSTER '{cluster}' (
      Timestamp DateTime64(9) CODEC(Delta, ZSTD(1)),
      TraceId String CODEC(ZSTD(1)),
      SpanId String CODEC(ZSTD(1)),
@@ -235,6 +236,11 @@ func createLogsTable(ctx context.Context, cfg *Config, db *sql.DB) error {
 
 func renderCreateLogsTableSQL(cfg *Config) string {
 	ttlExpr := generateTTLExpr(cfg.TTLDays, cfg.TTL, "Timestamp")
+
+	if !cfg.Sharded {
+		createLogsTableSQL = strings.ReplaceAll(createLogsTableSQL, "ON CLUSTER '{cluster}' ", "")
+	}
+
 	return fmt.Sprintf(createLogsTableSQL, cfg.LogsTableName, ttlExpr)
 }
 
