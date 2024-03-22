@@ -5,12 +5,12 @@ package clickhouseexporter // import "github.com/open-telemetry/opentelemetry-co
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2" // For register database driver.
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -21,7 +21,7 @@ import (
 )
 
 type logsExporter struct {
-	client    *sql.DB
+	client    driver.Conn
 	insertSQL string
 
 	logger *zap.Logger
@@ -60,14 +60,8 @@ func (e *logsExporter) shutdown(_ context.Context) error {
 
 func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 	start := time.Now()
-	err := doWithTx(ctx, e.client, func(tx *sql.Tx) error {
-		statement, err := tx.PrepareContext(ctx, e.insertSQL)
-		if err != nil {
-			return fmt.Errorf("PrepareContext:%w", err)
-		}
-		defer func() {
-			_ = statement.Close()
-		}()
+
+	err := func() error {
 		var serviceName string
 		for i := 0; i < ld.ResourceLogs().Len(); i++ {
 			logs := ld.ResourceLogs().At(i)
@@ -86,7 +80,7 @@ func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 				for k := 0; k < rs.Len(); k++ {
 					r := rs.At(k)
 					logAttr := attributesToMap(r.Attributes())
-					_, err = statement.ExecContext(ctx,
+					err := e.client.AsyncInsert(ctx, e.insertSQL, false,
 						r.Timestamp().AsTime(),
 						traceutil.TraceIDToHexOrEmptyString(r.TraceID()),
 						traceutil.SpanIDToHexOrEmptyString(r.SpanID()),
@@ -110,7 +104,7 @@ func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 			}
 		}
 		return nil
-	})
+	}()
 	duration := time.Since(start)
 	e.logger.Debug("insert logs", zap.Int("records", ld.LogRecordCount()),
 		zap.String("cost", duration.String()))
@@ -198,7 +192,7 @@ SETTINGS index_granularity=8192, ttl_only_drop_parts = 1;
 var driverName = "clickhouse" // for testing
 
 // newClickhouseClient create a clickhouse client.
-func newClickhouseClient(cfg *Config) (*sql.DB, error) {
+func newClickhouseClient(cfg *Config) (driver.Conn, error) {
 	db, err := cfg.buildDB(cfg.Database)
 	if err != nil {
 		return nil, err
@@ -220,15 +214,15 @@ func createDatabase(ctx context.Context, cfg *Config) error {
 		_ = db.Close()
 	}()
 	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", cfg.Database)
-	_, err = db.ExecContext(ctx, query)
+	err = db.Exec(ctx, query)
 	if err != nil {
 		return fmt.Errorf("create database:%w", err)
 	}
 	return nil
 }
 
-func createLogsTable(ctx context.Context, cfg *Config, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, renderCreateLogsTableSQL(cfg)); err != nil {
+func createLogsTable(ctx context.Context, cfg *Config, db driver.Conn) error {
+	if err := db.Exec(ctx, renderCreateLogsTableSQL(cfg)); err != nil {
 		return fmt.Errorf("exec create logs table sql: %w", err)
 	}
 	return nil
@@ -246,18 +240,4 @@ func renderCreateLogsTableSQL(cfg *Config) string {
 
 func renderInsertLogsSQL(cfg *Config) string {
 	return fmt.Sprintf(insertLogsSQLTemplate, cfg.LogsTableName)
-}
-
-func doWithTx(_ context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("db.Begin: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	if err := fn(tx); err != nil {
-		return err
-	}
-	return tx.Commit()
 }

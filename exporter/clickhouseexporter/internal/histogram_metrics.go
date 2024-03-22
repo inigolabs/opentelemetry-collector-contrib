@@ -5,10 +5,10 @@ package internal // import "github.com/open-telemetry/opentelemetry-collector-co
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
@@ -100,26 +100,18 @@ type histogramMetrics struct {
 	count          int
 }
 
-func (h *histogramMetrics) insert(ctx context.Context, db *sql.DB) error {
+func (h *histogramMetrics) insert(ctx context.Context, db driver.Conn) error {
 	if h.count == 0 {
 		return nil
 	}
 	start := time.Now()
-	err := doWithTx(ctx, db, func(tx *sql.Tx) error {
-		statement, err := tx.PrepareContext(ctx, h.insertSQL)
-		if err != nil {
-			return err
-		}
-
-		defer func() {
-			_ = statement.Close()
-		}()
-
+	err := func() error {
+		var err error
 		for _, model := range h.histogramModel {
 			for i := 0; i < model.histogram.DataPoints().Len(); i++ {
 				dp := model.histogram.DataPoints().At(i)
 				attrs, times, values, traceIDs, spanIDs := convertExemplars(dp.Exemplars())
-				_, err = statement.ExecContext(ctx,
+				err = db.AsyncInsert(ctx, h.insertSQL, false,
 					model.metadata.ResAttr,
 					model.metadata.ResURL,
 					model.metadata.ScopeInstr.Name(),
@@ -152,7 +144,7 @@ func (h *histogramMetrics) insert(ctx context.Context, db *sql.DB) error {
 			}
 		}
 		return err
-	})
+	}()
 	duration := time.Since(start)
 	if err != nil {
 		logger.Debug("insert histogram metrics fail", zap.Duration("cost", duration))

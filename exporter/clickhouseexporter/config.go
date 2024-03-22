@@ -4,13 +4,14 @@
 package clickhouseexporter // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter"
 
 import (
-	"database/sql"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/url"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
@@ -122,20 +123,37 @@ func (cfg *Config) buildDSN(database string) (string, error) {
 	return dsnURL.String(), nil
 }
 
-func (cfg *Config) buildDB(database string) (*sql.DB, error) {
-	dsn, err := cfg.buildDSN(database)
-	if err != nil {
-		return nil, err
+func (cfg *Config) buildDB(database string) (driver.Conn, error) {
+	options := clickhouse.Options{
+		Addr: []string{cfg.Endpoint},
+		Auth: clickhouse.Auth{
+			Username: cfg.Username,
+			Password: string(cfg.Password),
+			Database: cfg.Database,
+		},
+		Compression: &clickhouse.Compression{
+			Method: clickhouse.CompressionLZ4,
+		},
+		ClientInfo: clickhouse.ClientInfo{
+			Products: []struct {
+				Name    string
+				Version string
+			}{
+				{
+					Name: "otel-clickhouse-exporter",
+				},
+			},
+		},
+		FreeBufOnConnRelease: true,
 	}
 
-	// ClickHouse sql driver will read clickhouse settings from the DSN string.
-	// It also ensures defaults.
-	// See https://github.com/ClickHouse/clickhouse-go/blob/08b27884b899f587eb5c509769cd2bdf74a9e2a1/clickhouse_std.go#L189
-	conn, err := sql.Open(driverName, dsn)
-	if err != nil {
-		return nil, err
+	if _, ok := cfg.ConnectionParams["secure"]; ok {
+		if _, ok := cfg.ConnectionParams["skip_verify"]; ok {
+			options.TLS = &tls.Config{
+				InsecureSkipVerify: true,
+			}
+		}
 	}
 
-	return conn, nil
-
+	return clickhouse.Open(&options)
 }

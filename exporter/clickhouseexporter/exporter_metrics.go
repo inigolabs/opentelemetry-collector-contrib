@@ -5,7 +5,6 @@ package clickhouseexporter // import "github.com/open-telemetry/opentelemetry-co
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 
@@ -13,11 +12,12 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter/internal"
 )
 
 type metricsExporter struct {
-	client *sql.DB
+	client driver.Conn
 
 	logger *zap.Logger
 	cfg    *Config

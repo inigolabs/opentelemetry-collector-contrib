@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
@@ -34,7 +35,7 @@ type MetricsModel interface {
 	// Add used to bind MetricsMetaData to a specific metric then put them into a slice
 	Add(resAttr map[string]string, resURL string, scopeInstr pcommon.InstrumentationScope, scopeURL string, metrics any, name string, description string, unit string) error
 	// insert is used to insert metric data to clickhouse
-	insert(ctx context.Context, db *sql.DB) error
+	insert(ctx context.Context, db driver.Conn) error
 }
 
 // MetricsMetaData  contain specific metric data
@@ -51,7 +52,7 @@ func SetLogger(l *zap.Logger) {
 }
 
 // NewMetricsTable create metric tables with an expiry time to storage metric telemetry data
-func NewMetricsTable(ctx context.Context, tableName string, ttlExpr string, sharded bool, db *sql.DB) error {
+func NewMetricsTable(ctx context.Context, tableName string, ttlExpr string, sharded bool, db driver.Conn) error {
 	for table := range supportedMetricTypes {
 		query := fmt.Sprintf(table, tableName, ttlExpr)
 
@@ -59,7 +60,7 @@ func NewMetricsTable(ctx context.Context, tableName string, ttlExpr string, shar
 			query = strings.ReplaceAll(query, "ON CLUSTER '{cluster}' ", "")
 		}
 
-		if _, err := db.ExecContext(ctx, query); err != nil {
+		if err := db.Exec(ctx, query); err != nil {
 			return fmt.Errorf("exec create metrics table sql: %w", err)
 		}
 	}
@@ -88,7 +89,7 @@ func NewMetricsModel(tableName string) map[pmetric.MetricType]MetricsModel {
 }
 
 // InsertMetrics insert metric data into clickhouse concurrently
-func InsertMetrics(ctx context.Context, db *sql.DB, metricsMap map[pmetric.MetricType]MetricsModel) error {
+func InsertMetrics(ctx context.Context, db driver.Conn, metricsMap map[pmetric.MetricType]MetricsModel) error {
 	errsChan := make(chan error, len(supportedMetricTypes))
 	wg := &sync.WaitGroup{}
 	for _, m := range metricsMap {

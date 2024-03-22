@@ -5,10 +5,10 @@ package internal // import "github.com/open-telemetry/opentelemetry-collector-co
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
@@ -86,25 +86,19 @@ type summaryMetrics struct {
 	count        int
 }
 
-func (s *summaryMetrics) insert(ctx context.Context, db *sql.DB) error {
+func (s *summaryMetrics) insert(ctx context.Context, db driver.Conn) error {
 	if s.count == 0 {
 		return nil
 	}
 	start := time.Now()
-	err := doWithTx(ctx, db, func(tx *sql.Tx) error {
-		statement, err := tx.PrepareContext(ctx, s.insertSQL)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			_ = statement.Close()
-		}()
+	err := func() error {
+		var err error
 		for _, model := range s.summaryModel {
 			for i := 0; i < model.summary.DataPoints().Len(); i++ {
 				dp := model.summary.DataPoints().At(i)
 				quantiles, values := convertValueAtQuantile(dp.QuantileValues())
 
-				_, err = statement.ExecContext(ctx,
+				err = db.AsyncInsert(ctx, s.insertSQL, false,
 					model.metadata.ResAttr,
 					model.metadata.ResURL,
 					model.metadata.ScopeInstr.Name(),
@@ -131,7 +125,7 @@ func (s *summaryMetrics) insert(ctx context.Context, db *sql.DB) error {
 		}
 
 		return err
-	})
+	}()
 	duration := time.Since(start)
 	if err != nil {
 		logger.Debug("insert summary metrics fail", zap.Duration("cost", duration))

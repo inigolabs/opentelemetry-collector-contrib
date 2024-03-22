@@ -5,12 +5,12 @@ package clickhouseexporter // import "github.com/open-telemetry/opentelemetry-co
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2" // For register database driver.
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	conventions "go.opentelemetry.io/collector/semconv/v1.18.0"
@@ -20,7 +20,7 @@ import (
 )
 
 type tracesExporter struct {
-	client    *sql.DB
+	client    driver.Conn
 	insertSQL string
 
 	logger *zap.Logger
@@ -59,14 +59,7 @@ func (e *tracesExporter) shutdown(_ context.Context) error {
 
 func (e *tracesExporter) pushTraceData(ctx context.Context, td ptrace.Traces) error {
 	start := time.Now()
-	err := doWithTx(ctx, e.client, func(tx *sql.Tx) error {
-		statement, err := tx.PrepareContext(ctx, e.insertSQL)
-		if err != nil {
-			return fmt.Errorf("PrepareContext:%w", err)
-		}
-		defer func() {
-			_ = statement.Close()
-		}()
+	err := func() error {
 		for i := 0; i < td.ResourceSpans().Len(); i++ {
 			spans := td.ResourceSpans().At(i)
 			res := spans.Resource()
@@ -85,7 +78,7 @@ func (e *tracesExporter) pushTraceData(ctx context.Context, td ptrace.Traces) er
 					status := r.Status()
 					eventTimes, eventNames, eventAttrs := convertEvents(r.Events())
 					linksTraceIDs, linksSpanIDs, linksTraceStates, linksAttrs := convertLinks(r.Links())
-					_, err = statement.ExecContext(ctx,
+					err := e.client.AsyncInsert(ctx, e.insertSQL, false,
 						r.StartTimestamp().AsTime(),
 						traceutil.TraceIDToHexOrEmptyString(r.TraceID()),
 						traceutil.SpanIDToHexOrEmptyString(r.SpanID()),
@@ -116,7 +109,7 @@ func (e *tracesExporter) pushTraceData(ctx context.Context, td ptrace.Traces) er
 			}
 		}
 		return nil
-	})
+	}()
 	duration := time.Since(start)
 	e.logger.Debug("insert traces", zap.Int("records", td.SpanCount()),
 		zap.String("cost", duration.String()))
@@ -273,14 +266,14 @@ GROUP BY TraceId;
 `
 )
 
-func createTracesTable(ctx context.Context, cfg *Config, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, renderCreateTracesTableSQL(cfg)); err != nil {
+func createTracesTable(ctx context.Context, cfg *Config, db driver.Conn) error {
+	if err := db.Exec(ctx, renderCreateTracesTableSQL(cfg)); err != nil {
 		return fmt.Errorf("exec create traces table sql: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, renderCreateTraceIDTsTableSQL(cfg)); err != nil {
+	if err := db.Exec(ctx, renderCreateTraceIDTsTableSQL(cfg)); err != nil {
 		return fmt.Errorf("exec create traceIDTs table sql: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, renderTraceIDTsMaterializedViewSQL(cfg)); err != nil {
+	if err := db.Exec(ctx, renderTraceIDTsMaterializedViewSQL(cfg)); err != nil {
 		return fmt.Errorf("exec create traceIDTs view sql: %w", err)
 	}
 	return nil
