@@ -124,12 +124,17 @@ func (cfg *Config) buildDSN(database string) (string, error) {
 }
 
 func (cfg *Config) buildDB(database string) (driver.Conn, error) {
+	dsnURL, err := url.Parse(cfg.Endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", errConfigInvalidEndpoint, err.Error())
+	}
+
 	options := clickhouse.Options{
-		Addr: []string{cfg.Endpoint},
+		Addr: []string{dsnURL.Host},
 		Auth: clickhouse.Auth{
 			Username: cfg.Username,
 			Password: string(cfg.Password),
-			Database: cfg.Database,
+			Database: database,
 		},
 		Compression: &clickhouse.Compression{
 			Method: clickhouse.CompressionLZ4,
