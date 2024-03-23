@@ -6,6 +6,7 @@ package clickhouseexporter // import "github.com/open-telemetry/opentelemetry-co
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,7 +63,9 @@ func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 	start := time.Now()
 
 	err := func() error {
+		var err error
 		var serviceName string
+		var orgID int64
 		for i := 0; i < ld.ResourceLogs().Len(); i++ {
 			logs := ld.ResourceLogs().At(i)
 			res := logs.Resource()
@@ -70,6 +73,12 @@ func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 			resAttr := attributesToMap(res.Attributes())
 			if v, ok := res.Attributes().Get(conventions.AttributeServiceName); ok {
 				serviceName = v.Str()
+			}
+			if v, ok := res.Attributes().Get("org_id"); ok {
+				orgID, err = strconv.ParseInt(v.Str(), 10, 64)
+				if err != nil {
+					return err
+				}
 			}
 			for j := 0; j < logs.ScopeLogs().Len(); j++ {
 				rs := logs.ScopeLogs().At(j).LogRecords()
@@ -87,6 +96,7 @@ func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 						uint32(r.Flags()),
 						r.SeverityText(),
 						int32(r.SeverityNumber()),
+						orgID,
 						serviceName,
 						r.Body().AsString(),
 						resURL,
@@ -130,6 +140,7 @@ CREATE TABLE IF NOT EXISTS %s ON CLUSTER '{cluster}' (
      TraceFlags UInt32 CODEC(ZSTD(1)),
      SeverityText LowCardinality(String) CODEC(ZSTD(1)),
      SeverityNumber Int32 CODEC(ZSTD(1)),
+     OrgID Int64 CODEC(ZSTD(1)),
      ServiceName LowCardinality(String) CODEC(ZSTD(1)),
      Body String CODEC(ZSTD(1)),
      ResourceSchemaUrl String CODEC(ZSTD(1)),
@@ -161,6 +172,7 @@ SETTINGS index_granularity=8192, ttl_only_drop_parts = 1;
                         TraceFlags,
                         SeverityText,
                         SeverityNumber,
+						OrgID,
                         ServiceName,
                         Body,
                         ResourceSchemaUrl,
@@ -177,6 +189,7 @@ SETTINGS index_granularity=8192, ttl_only_drop_parts = 1;
                                   ?,
                                   ?,
                                   ?,
+								  ?,
                                   ?,
                                   ?,
                                   ?,
