@@ -231,7 +231,7 @@ func createDatabase(ctx context.Context, cfg *Config) error {
 		return nil
 	}
 
-	db, err := cfg.buildDB()
+	db, err := cfg.buildDB(cfg.Database)
 	if err != nil {
 		return err
 	}
