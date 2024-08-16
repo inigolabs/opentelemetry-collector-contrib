@@ -106,7 +106,7 @@ func TestValidate(t *testing.T) {
 				TLSName:  "tls1",
 				TLS: &configtls.ClientConfig{
 					Insecure: false,
-					TLSSetting: configtls.Config{
+					Config: configtls.Config{
 						CAFile: "BADCAFILE",
 					},
 				},
@@ -120,8 +120,8 @@ func TestValidate(t *testing.T) {
 				Endpoint: "localhost:3000",
 				TLSName:  "",
 				TLS: &configtls.ClientConfig{
-					Insecure:   false,
-					TLSSetting: configtls.Config{},
+					Insecure: false,
+					Config:   configtls.Config{},
 				},
 				ControllerConfig: scraperhelper.NewDefaultControllerConfig(),
 			},
@@ -146,7 +146,7 @@ func TestLoadConfig(t *testing.T) {
 
 	sub, err := cm.Sub(component.NewIDWithName(metadata.Type, "").String())
 	require.NoError(t, err)
-	require.NoError(t, component.UnmarshalConfig(sub, cfg))
+	require.NoError(t, sub.Unmarshal(cfg))
 
 	expected := factory.CreateDefaultConfig().(*Config)
 	expected.Endpoint = "localhost:3000"

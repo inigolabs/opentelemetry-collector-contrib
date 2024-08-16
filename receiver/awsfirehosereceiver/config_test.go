@@ -26,7 +26,7 @@ func TestLoadConfig(t *testing.T) {
 
 	sub, err := cm.Sub(component.NewIDWithName(metadata.Type, "").String())
 	require.NoError(t, err)
-	require.NoError(t, component.UnmarshalConfig(sub, cfg))
+	require.NoError(t, sub.Unmarshal(cfg))
 
 	assert.NoError(t, component.ValidateConfig(cfg))
 
@@ -36,7 +36,7 @@ func TestLoadConfig(t *testing.T) {
 		ServerConfig: confighttp.ServerConfig{
 			Endpoint: "0.0.0.0:4433",
 			TLSSetting: &configtls.ServerConfig{
-				TLSSetting: configtls.Config{
+				Config: configtls.Config{
 					CertFile: "server.crt",
 					KeyFile:  "server.key",
 				},

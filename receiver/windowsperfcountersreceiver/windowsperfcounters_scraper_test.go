@@ -7,6 +7,8 @@ package windowsperfcountersreceiver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,7 +18,9 @@ import (
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/receiver/scrapererror"
 	"go.opentelemetry.io/collector/receiver/scraperhelper"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -31,6 +35,11 @@ type mockPerfCounter struct {
 	path          string
 	scrapeErr     error
 	closeErr      error
+	resetErr      error
+}
+
+func (w *mockPerfCounter) Reset() error {
+	return w.resetErr
 }
 
 func (w *mockPerfCounter) Path() string {
@@ -45,8 +54,16 @@ func (w *mockPerfCounter) Close() error {
 	return w.closeErr
 }
 
-func mockPerfCounterFactory(mpc mockPerfCounter) newWatcherFunc {
+func mockPerfCounterFactoryInvocations(mpcs ...mockPerfCounter) newWatcherFunc {
+	invocationNum := 0
+
 	return func(string, string, string) (winperfcounters.PerfCounterWatcher, error) {
+		if invocationNum == len(mpcs) {
+			return nil, fmt.Errorf("invoked watcher %d times but only %d were setup", invocationNum+1, len(mpcs))
+		}
+		mpc := mpcs[invocationNum]
+		invocationNum++
+
 		return &mpc, nil
 	}
 }
@@ -101,7 +118,7 @@ func Test_WindowsPerfCounterScraper(t *testing.T) {
 					"bytes.committed": {
 						Description: "number of bytes committed to memory",
 						Unit:        "By",
-						Sum:         SumMetric{},
+						Sum:         SumMetric{Aggregation: "cumulative", Monotonic: true},
 					},
 				},
 				PerfCounters: []ObjectConfig{
@@ -139,6 +156,48 @@ func Test_WindowsPerfCounterScraper(t *testing.T) {
 			startMessage: "some performance counters could not be initialized",
 			startErr:     "failed to create perf counter with path \\Invalid Object\\Invalid Counter: The specified object was not found on the computer.\r\n",
 		},
+		{
+			name: "NoMatchingInstance",
+			cfg: &Config{
+				MetricMetaData: map[string]MetricConfig{
+					"no.matching.instance": {
+						Unit:  "%",
+						Gauge: GaugeMetric{},
+					},
+				},
+				PerfCounters: []ObjectConfig{
+					{
+						Object:    ".NET CLR Memory",
+						Instances: []string{"NoMatchingInstance*"},
+						Counters:  []CounterConfig{{Name: "% Time in GC", MetricRep: MetricRep{Name: "no.matching.instance"}}},
+					},
+				},
+				ControllerConfig: scraperhelper.ControllerConfig{CollectionInterval: time.Minute, InitialDelay: time.Second},
+			},
+			expectedMetricPath: filepath.Join("testdata", "scraper", "no_matching_instance.yaml"),
+		},
+		{
+			name: "MetricDefinedButNoScrapedValue",
+			cfg: &Config{
+				MetricMetaData: map[string]MetricConfig{
+					"cpu.idle": {
+						Description: "percentage of time CPU is idle.",
+						Unit:        "%",
+						Gauge:       GaugeMetric{},
+					},
+					"no.counter": {
+						Description: "there is no counter or data for this metric",
+						Unit:        "By",
+						Gauge:       GaugeMetric{},
+					},
+				},
+				PerfCounters: []ObjectConfig{
+					{Object: "Processor", Instances: []string{"_Total"}, Counters: []CounterConfig{{Name: "% Idle Time", MetricRep: MetricRep{Name: "cpu.idle"}}}},
+				},
+				ControllerConfig: scraperhelper.ControllerConfig{CollectionInterval: time.Minute, InitialDelay: time.Second},
+			},
+			expectedMetricPath: filepath.Join("testdata", "scraper", "metric_not_scraped.yaml"),
+		},
 	}
 
 	for _, test := range testCases {
@@ -155,7 +214,9 @@ func Test_WindowsPerfCounterScraper(t *testing.T) {
 			scraper := newScraper(cfg, settings)
 
 			err := scraper.start(context.Background(), componenttest.NewNopHost())
-			if test.startErr != "" {
+			if test.startErr == "" {
+				require.Equal(t, 0, obs.Len())
+			} else {
 				require.Equal(t, 1, obs.Len())
 				log := obs.All()[0]
 				assert.Equal(t, log.Level, zapcore.WarnLevel)
@@ -175,8 +236,16 @@ func Test_WindowsPerfCounterScraper(t *testing.T) {
 			expectedMetrics, err := golden.ReadMetrics(test.expectedMetricPath)
 			require.NoError(t, err)
 
-			// TODO: Metrics comparison is failing, not verifying the result until that is fixed.
-			_ = pmetrictest.CompareMetrics(expectedMetrics, actualMetrics, pmetrictest.IgnoreMetricValues())
+			require.NoError(t, pmetrictest.CompareMetrics(expectedMetrics, actualMetrics,
+				// Scraping test host means static values, timestamps and instance counts are unreliable. ScopeMetrics order is also unpredictable.
+				// The check only takes the first instance of multi-instance counters and assumes that the other instances would be included.
+				pmetrictest.IgnoreSubsequentDataPoints("cpu.idle"),
+				pmetrictest.IgnoreSubsequentDataPoints("processor.time"),
+				pmetrictest.IgnoreScopeMetricsOrder(),
+				pmetrictest.IgnoreResourceMetricsOrder(),
+				pmetrictest.IgnoreMetricValues(),
+				pmetrictest.IgnoreTimestamp(),
+			))
 		})
 	}
 }
@@ -272,11 +341,53 @@ func TestInitWatchers(t *testing.T) {
 	}
 }
 
+func TestWatcherResetFailure(t *testing.T) {
+	const errMsg string = "failed to reset watcher"
+	mpc := mockPerfCounter{
+		counterValues: []winperfcounters.CounterValue{{Value: 1.0}},
+		resetErr:      errors.New(errMsg),
+	}
+
+	cfg := Config{
+		PerfCounters: []ObjectConfig{
+			{
+				Counters: []CounterConfig{
+					{
+						MetricRep: MetricRep{
+							Name: "metric",
+						},
+						RecreateQuery: true,
+					},
+				},
+			},
+		},
+		MetricMetaData: map[string]MetricConfig{
+			"metric": {Description: "description", Unit: "1"},
+		},
+	}
+
+	core, _ := observer.New(zapcore.WarnLevel)
+	logger := zap.New(core)
+	settings := componenttest.NewNopTelemetrySettings()
+	settings.Logger = logger
+
+	s := &scraper{cfg: &cfg, settings: settings, newWatcher: mockPerfCounterFactoryInvocations(mpc)}
+	errs := s.start(context.Background(), componenttest.NewNopHost())
+	require.NoError(t, errs)
+
+	vals, err := s.scrape(context.Background())
+
+	if assert.Error(t, err) {
+		assert.Equal(t, errMsg, err.Error())
+	}
+	assert.NotEmpty(t, vals) // Still attempts scraping using previous query
+}
+
 func TestScrape(t *testing.T) {
 	testCases := []struct {
-		name              string
-		cfg               Config
-		mockCounterValues []winperfcounters.CounterValue
+		name             string
+		cfg              Config
+		mockPerfCounters []mockPerfCounter
 	}{
 		{
 			name: "metricsWithoutInstance",
@@ -305,7 +416,10 @@ func TestScrape(t *testing.T) {
 					"metric2": {Description: "metric2 description", Unit: "2"},
 				},
 			},
-			mockCounterValues: []winperfcounters.CounterValue{{Value: 1.0}},
+			mockPerfCounters: []mockPerfCounter{
+				{counterValues: []winperfcounters.CounterValue{{Value: 1.0}}},
+				{counterValues: []winperfcounters.CounterValue{{Value: 2.0}}},
+			},
 		},
 		{
 			name: "metricsWithInstance",
@@ -334,19 +448,76 @@ func TestScrape(t *testing.T) {
 					"metric2": {Description: "metric2 description", Unit: "2"},
 				},
 			},
-			mockCounterValues: []winperfcounters.CounterValue{{InstanceName: "Test Instance", Value: 1.0}},
+			mockPerfCounters: []mockPerfCounter{
+				{counterValues: []winperfcounters.CounterValue{{InstanceName: "Test Instance", Value: 1.0}}},
+				{counterValues: []winperfcounters.CounterValue{{InstanceName: "Test Instance", Value: 2.0}}},
+			},
+		},
+		{
+			name: "metricsWithSingleCounterFailure",
+			cfg: Config{
+				PerfCounters: []ObjectConfig{
+					{
+						Counters: []CounterConfig{
+							{
+								MetricRep: MetricRep{
+									Name: "metric1",
+								},
+							},
+							{
+								MetricRep: MetricRep{
+									Name: "metric2",
+									Attributes: map[string]string{
+										"test.attribute": "test-value",
+									},
+								},
+							},
+							{
+								MetricRep: MetricRep{
+									Name: "metric3",
+								},
+							},
+						},
+					},
+				},
+				MetricMetaData: map[string]MetricConfig{
+					"metric1": {Description: "metric1 description", Unit: "1"},
+					"metric2": {Description: "metric2 description", Unit: "2"},
+					"metric3": {Description: "metric3 description", Unit: "3"},
+				},
+			},
+			mockPerfCounters: []mockPerfCounter{
+				{counterValues: []winperfcounters.CounterValue{{InstanceName: "Test Instance", Value: 1.0}}},
+				{scrapeErr: errors.New("unable to scrape metric 2")},
+				{scrapeErr: errors.New("unable to scrape metric 3")},
+			},
 		},
 	}
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
-			mpc := mockPerfCounter{counterValues: test.mockCounterValues}
+			mpcs := test.mockPerfCounters
 			testConfig := test.cfg
-			s := &scraper{cfg: &testConfig, newWatcher: mockPerfCounterFactory(mpc)}
+			s := &scraper{cfg: &testConfig, newWatcher: mockPerfCounterFactoryInvocations(mpcs...)}
 			errs := s.start(context.Background(), componenttest.NewNopHost())
 			require.NoError(t, errs)
 
+			var expectedErrors []error
+			for _, mpc := range test.mockPerfCounters {
+				if mpc.scrapeErr != nil {
+					expectedErrors = append(expectedErrors, mpc.scrapeErr)
+				}
+			}
+
 			m, err := s.scrape(context.Background())
-			require.NoError(t, err)
+			if len(expectedErrors) != 0 {
+				var partialErr scrapererror.PartialScrapeError
+				require.ErrorAs(t, err, &partialErr)
+				require.Equal(t, len(expectedErrors), partialErr.Failed)
+				expectedError := multierr.Combine(expectedErrors...)
+				require.Equal(t, expectedError.Error(), partialErr.Error())
+			} else {
+				require.NoError(t, err)
+			}
 			require.Equal(t, 1, m.ResourceMetrics().Len())
 			require.Equal(t, 1, m.ResourceMetrics().At(0).ScopeMetrics().Len())
 
@@ -354,17 +525,30 @@ func TestScrape(t *testing.T) {
 			metrics.Sort(func(a, b pmetric.Metric) bool {
 				return a.Name() < b.Name()
 			})
+
+			assert.Equal(t, len(test.mockPerfCounters)-len(expectedErrors), metrics.Len())
+
 			curMetricsNum := 0
 			for _, pc := range test.cfg.PerfCounters {
-				for _, counterCfg := range pc.Counters {
+
+				for counterIdx, counterCfg := range pc.Counters {
+					counterValues := test.mockPerfCounters[counterIdx].counterValues
+					scrapeErr := test.mockPerfCounters[counterIdx].scrapeErr
+
+					if scrapeErr != nil {
+						require.Empty(t, counterValues, "Invalid test case. Scrape error and counter values simultaneously.")
+						continue // no data for this counter.
+					}
+
 					metric := metrics.At(curMetricsNum)
 					assert.Equal(t, counterCfg.MetricRep.Name, metric.Name())
 					metricData := test.cfg.MetricMetaData[counterCfg.MetricRep.Name]
 					assert.Equal(t, metricData.Description, metric.Description())
 					assert.Equal(t, metricData.Unit, metric.Unit())
 					dps := metric.Gauge().DataPoints()
-					assert.Equal(t, len(test.mockCounterValues), dps.Len())
-					for dpIdx, val := range test.mockCounterValues {
+
+					assert.Equal(t, len(counterValues), dps.Len())
+					for dpIdx, val := range counterValues {
 						assert.Equal(t, val.Value, dps.At(dpIdx).DoubleValue())
 						expectedAttributeLen := len(counterCfg.MetricRep.Attributes)
 						if val.InstanceName != "" {

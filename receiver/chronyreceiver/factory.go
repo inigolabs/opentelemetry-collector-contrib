@@ -26,7 +26,7 @@ func NewFactory() receiver.Factory {
 
 func newMetricsReceiver(
 	ctx context.Context,
-	set receiver.CreateSettings,
+	set receiver.Settings,
 	rCfg component.Config,
 	consumer consumer.Metrics) (receiver.Metrics, error) {
 	cfg, ok := rCfg.(*Config)
@@ -38,7 +38,7 @@ func newMetricsReceiver(
 	scraper, err := scraperhelper.NewScraper(
 		metadata.Type.String(),
 		s.scrape,
-		scraperhelper.WithStart(func(ctx context.Context, host component.Host) error {
+		scraperhelper.WithStart(func(_ context.Context, _ component.Host) error {
 			chronyc, err := chrony.New(cfg.Endpoint, cfg.Timeout)
 			s.client = chronyc
 			return err

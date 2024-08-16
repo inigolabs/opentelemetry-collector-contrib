@@ -1,5 +1,4 @@
 type: basicauth
-scope_name: otelcol/basicauth
 
 status:
   class: extension
@@ -7,12 +6,6 @@ status:
     beta: [extension]
   distributions:
   - contrib
-  - grafana
-  - liatrio
-  - observiq
-  - redhat
-  - splunk
-  - sumo
   codeowners:
     active: [jpkrohling, frzifus]
     emeritus: [svrakitin]

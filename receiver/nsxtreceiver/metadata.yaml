@@ -1,11 +1,10 @@
 type: nsxt
-scope_name: otelcol/nsxtreceiver
 
 status:
   class: receiver
   stability:
     alpha: [metrics]
-  distributions: [contrib, sumo]
+  distributions: [contrib]
   codeowners:
     active: [dashpole, schmikei]
 

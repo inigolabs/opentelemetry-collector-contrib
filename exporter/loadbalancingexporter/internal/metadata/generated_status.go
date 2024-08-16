@@ -4,12 +4,11 @@ package metadata
 
 import (
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var (
-	Type = component.MustNewType("loadbalancing")
+	Type      = component.MustNewType("loadbalancing")
+	ScopeName = "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/loadbalancingexporter"
 )
 
 const (
@@ -17,11 +16,3 @@ const (
 	TracesStability  = component.StabilityLevelBeta
 	LogsStability    = component.StabilityLevelBeta
 )
-
-func Meter(settings component.TelemetrySettings) metric.Meter {
-	return settings.MeterProvider.Meter("otelcol/loadbalancing")
-}
-
-func Tracer(settings component.TelemetrySettings) trace.Tracer {
-	return settings.TracerProvider.Tracer("otelcol/loadbalancing")
-}

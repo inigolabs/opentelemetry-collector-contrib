@@ -6,23 +6,34 @@ package otelarrowreceiver // import "github.com/open-telemetry/opentelemetry-col
 import (
 	"fmt"
 
-	"github.com/open-telemetry/otel-arrow/collector/compression/zstd"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configgrpc"
+
+	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/otelarrow/compression/zstd"
 )
 
 // Protocols is the configuration for the supported protocols.
 type Protocols struct {
 	GRPC  configgrpc.ServerConfig `mapstructure:"grpc"`
-	Arrow ArrowSettings           `mapstructure:"arrow"`
+	Arrow ArrowConfig             `mapstructure:"arrow"`
 }
 
-// ArrowSettings support configuring the Arrow receiver.
-type ArrowSettings struct {
+// ArrowConfig support configuring the Arrow receiver.
+type ArrowConfig struct {
 	// MemoryLimitMiB is the size of a shared memory region used
 	// by all Arrow streams, in MiB.  When too much load is
 	// passing through, they will see ResourceExhausted errors.
 	MemoryLimitMiB uint64 `mapstructure:"memory_limit_mib"`
+
+	// AdmissionLimitMiB limits the number of requests that are received by the stream based on
+	// request size information available. Request size is used to control how much traffic we admit
+	// for processing, but does not control how much memory is used during request processing.
+	AdmissionLimitMiB uint64 `mapstructure:"admission_limit_mib"`
+
+	// WaiterLimit is the limit on the number of waiters waiting to be processed and consumed.
+	// This is a dimension of memory limiting to ensure waiters are not consuming an
+	// unexpectedly large amount of memory in the arrow receiver.
+	WaiterLimit int64 `mapstructure:"waiter_limit"`
 
 	// Zstd settings apply to OTel-Arrow use of gRPC specifically.
 	Zstd zstd.DecoderConfig `mapstructure:"zstd"`
@@ -35,16 +46,9 @@ type Config struct {
 }
 
 var _ component.Config = (*Config)(nil)
+var _ component.ConfigValidator = (*ArrowConfig)(nil)
 
-// Validate checks the receiver configuration is valid
-func (cfg *Config) Validate() error {
-	if err := cfg.Arrow.Validate(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (cfg *ArrowSettings) Validate() error {
+func (cfg *ArrowConfig) Validate() error {
 	if err := cfg.Zstd.Validate(); err != nil {
 		return fmt.Errorf("zstd decoder: invalid configuration: %w", err)
 	}

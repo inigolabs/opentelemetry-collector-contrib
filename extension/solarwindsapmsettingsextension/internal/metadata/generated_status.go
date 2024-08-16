@@ -4,22 +4,13 @@ package metadata
 
 import (
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var (
-	Type = component.MustNewType("solarwindsapmsettings")
+	Type      = component.MustNewType("solarwindsapmsettings")
+	ScopeName = "github.com/open-telemetry/opentelemetry-collector-contrib/extension/solarwindsapmsettingsextension"
 )
 
 const (
 	ExtensionStability = component.StabilityLevelDevelopment
 )
-
-func Meter(settings component.TelemetrySettings) metric.Meter {
-	return settings.MeterProvider.Meter("otelcol/solarwindsapmsettings")
-}
-
-func Tracer(settings component.TelemetrySettings) trace.Tracer {
-	return settings.TracerProvider.Tracer("otelcol/solarwindsapmsettings")
-}

@@ -33,7 +33,7 @@ func TestEndToEnd(t *testing.T) {
 	cfg.BenchOpConfig.NumHosts = numHosts
 	sink := new(consumertest.LogsSink)
 
-	rcvr, err := f.CreateLogsReceiver(ctx, receivertest.NewNopCreateSettings(), cfg, sink)
+	rcvr, err := f.CreateLogsReceiver(ctx, receivertest.NewNopSettings(), cfg, sink)
 	require.NoError(t, err)
 
 	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()))
@@ -62,7 +62,7 @@ func (bc benchCase) run(b *testing.B) {
 		cfg.BenchOpConfig.NumHosts = numHosts
 		sink := new(consumertest.LogsSink)
 
-		rcvr, err := f.CreateLogsReceiver(context.Background(), receivertest.NewNopCreateSettings(), cfg, sink)
+		rcvr, err := f.CreateLogsReceiver(context.Background(), receivertest.NewNopSettings(), cfg, sink)
 		require.NoError(b, err)
 
 		b.ReportAllocs()
@@ -164,8 +164,8 @@ type BenchOpConfig struct {
 }
 
 // Build will build a noop operator.
-func (c BenchOpConfig) Build(logger *zap.SugaredLogger) (operator.Operator, error) {
-	inputOperator, err := c.InputConfig.Build(logger)
+func (c BenchOpConfig) Build(set component.TelemetrySettings) (operator.Operator, error) {
+	inputOperator, err := c.InputConfig.Build(set)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,10 @@ func (b *Input) Start(_ operator.Persister) error {
 				return
 			default:
 			}
-			b.Write(ctx, b.entries[n])
+			err := b.Write(ctx, b.entries[n])
+			if err != nil {
+				b.Logger().Error("failed to write entry", zap.Error(err))
+			}
 		}
 	}()
 	return nil

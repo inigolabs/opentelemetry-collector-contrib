@@ -4,22 +4,13 @@ package metadata
 
 import (
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var (
-	Type = component.MustNewType("jaegerremotesampling")
+	Type      = component.MustNewType("jaegerremotesampling")
+	ScopeName = "github.com/open-telemetry/opentelemetry-collector-contrib/extension/jaegerremotesampling"
 )
 
 const (
 	ExtensionStability = component.StabilityLevelAlpha
 )
-
-func Meter(settings component.TelemetrySettings) metric.Meter {
-	return settings.MeterProvider.Meter("otelcol/jaegerremotesampling")
-}
-
-func Tracer(settings component.TelemetrySettings) trace.Tracer {
-	return settings.TracerProvider.Tracer("otelcol/jaegerremotesampling")
-}

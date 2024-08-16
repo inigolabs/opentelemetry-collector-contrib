@@ -79,9 +79,9 @@ func TestSendAggregations(t *testing.T) {
 		t.Run(testInstance.name, func(t *testing.T) {
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
-			err := cfg.Unmarshal(testInstance.cfgMap)
+			err := testInstance.cfgMap.Unmarshal(cfg)
 			if err != nil || testInstance.err != "" {
-				assert.EqualError(t, err, testInstance.err)
+				assert.ErrorContains(t, err, testInstance.err)
 			} else {
 				assert.Equal(t, testInstance.expectedAggrValue, cfg.Metrics.HistConfig.SendAggregations)
 				var warningStr []string
@@ -156,9 +156,9 @@ func TestPeerTags(t *testing.T) {
 		t.Run(testInstance.name, func(t *testing.T) {
 			f := NewFactory()
 			cfg := f.CreateDefaultConfig().(*Config)
-			err := cfg.Unmarshal(testInstance.cfgMap)
+			err := testInstance.cfgMap.Unmarshal(cfg)
 			if err != nil || testInstance.err != "" {
-				assert.EqualError(t, err, testInstance.err)
+				assert.ErrorContains(t, err, testInstance.err)
 			} else {
 				assert.Equal(t, testInstance.expectedPeerTagsValue, cfg.Traces.PeerTagsAggregation)
 				var warningStr []string

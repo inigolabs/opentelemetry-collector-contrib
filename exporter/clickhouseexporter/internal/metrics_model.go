@@ -52,14 +52,9 @@ func SetLogger(l *zap.Logger) {
 }
 
 // NewMetricsTable create metric tables with an expiry time to storage metric telemetry data
-func NewMetricsTable(ctx context.Context, tableName string, ttlExpr string, sharded bool, db driver.Conn) error {
+func NewMetricsTable(ctx context.Context, tableName, cluster, engine, ttlExpr string, db driver.Conn) error {
 	for table := range supportedMetricTypes {
-		query := fmt.Sprintf(table, tableName, ttlExpr)
-
-		if !sharded {
-			query = strings.ReplaceAll(query, "ON CLUSTER '{cluster}' ", "")
-		}
-
+		query := fmt.Sprintf(table, tableName, cluster, engine, ttlExpr)
 		if err := db.Exec(ctx, query); err != nil {
 			return fmt.Errorf("exec create metrics table sql: %w", err)
 		}

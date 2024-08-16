@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2" // For register database driver.
@@ -44,6 +43,10 @@ func newLogsExporter(logger *zap.Logger, cfg *Config) (*logsExporter, error) {
 }
 
 func (e *logsExporter) start(ctx context.Context, _ component.Host) error {
+	if !e.cfg.shouldCreateSchema() {
+		return nil
+	}
+
 	if err := createDatabase(ctx, e.cfg); err != nil {
 		return err
 	}
@@ -86,11 +89,18 @@ func (e *logsExporter) pushLogsData(ctx context.Context, ld plog.Logs) error {
 				scopeName := logs.ScopeLogs().At(j).Scope().Name()
 				scopeVersion := logs.ScopeLogs().At(j).Scope().Version()
 				scopeAttr := attributesToMap(logs.ScopeLogs().At(j).Scope().Attributes())
+
 				for k := 0; k < rs.Len(); k++ {
 					r := rs.At(k)
+
+					timestamp := r.Timestamp()
+					if timestamp == 0 {
+						timestamp = r.ObservedTimestamp()
+					}
+
 					logAttr := attributesToMap(r.Attributes())
 					err := e.client.AsyncInsert(ctx, e.insertSQL, false,
-						r.Timestamp().AsTime(),
+						timestamp.AsTime(),
 						traceutil.TraceIDToHexOrEmptyString(r.TraceID()),
 						traceutil.SpanIDToHexOrEmptyString(r.SpanID()),
 						uint32(r.Flags()),
@@ -133,36 +143,38 @@ func attributesToMap(attributes pcommon.Map) map[string]string {
 var (
 	// language=ClickHouse SQL
 	createLogsTableSQL = `
-CREATE TABLE IF NOT EXISTS %s ON CLUSTER '{cluster}' (
-     Timestamp DateTime64(9) CODEC(Delta, ZSTD(1)),
-     TraceId String CODEC(ZSTD(1)),
-     SpanId String CODEC(ZSTD(1)),
-     TraceFlags UInt32 CODEC(ZSTD(1)),
-     SeverityText LowCardinality(String) CODEC(ZSTD(1)),
-     SeverityNumber Int32 CODEC(ZSTD(1)),
-     OrgID Int64 CODEC(ZSTD(1)),
-     ServiceName LowCardinality(String) CODEC(ZSTD(1)),
-     Body String CODEC(ZSTD(1)),
-     ResourceSchemaUrl String CODEC(ZSTD(1)),
-     ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-     ScopeSchemaUrl String CODEC(ZSTD(1)),
-     ScopeName String CODEC(ZSTD(1)),
-     ScopeVersion String CODEC(ZSTD(1)),
-     ScopeAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-     LogAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-     INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1,
-     INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-     INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-     INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-     INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-     INDEX idx_log_attr_key mapKeys(LogAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-     INDEX idx_log_attr_value mapValues(LogAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-     INDEX idx_body Body TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 1
-) ENGINE MergeTree()
+CREATE TABLE IF NOT EXISTS %s %s (
+	Timestamp DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+	TimestampTime DateTime DEFAULT toDateTime(Timestamp),
+	TraceId String CODEC(ZSTD(1)),
+	SpanId String CODEC(ZSTD(1)),
+	TraceFlags UInt8,
+	SeverityText LowCardinality(String) CODEC(ZSTD(1)),
+	SeverityNumber UInt8,
+	ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+	Body String CODEC(ZSTD(1)),
+	ResourceSchemaUrl LowCardinality(String) CODEC(ZSTD(1)),
+	ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+	ScopeSchemaUrl LowCardinality(String) CODEC(ZSTD(1)),
+	ScopeName String CODEC(ZSTD(1)),
+	ScopeVersion LowCardinality(String) CODEC(ZSTD(1)),
+	ScopeAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+	LogAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+
+	INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1,
+	INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+	INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+	INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+	INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+	INDEX idx_log_attr_key mapKeys(LogAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+	INDEX idx_log_attr_value mapValues(LogAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+	INDEX idx_body Body TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 8
+) ENGINE = %s
+PARTITION BY toDate(TimestampTime)
+PRIMARY KEY (ServiceName, TimestampTime)
+ORDER BY (ServiceName, TimestampTime, Timestamp)
 %s
-PARTITION BY toDate(Timestamp)
-ORDER BY (ServiceName, SeverityText, toUnixTimestamp(Timestamp), TraceId)
-SETTINGS index_granularity=8192, ttl_only_drop_parts = 1;
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 `
 	// language=ClickHouse SQL
 	insertLogsSQLTemplate = `INSERT INTO %s (
@@ -219,17 +231,17 @@ func createDatabase(ctx context.Context, cfg *Config) error {
 		return nil
 	}
 
-	db, err := cfg.buildDB(defaultDatabase)
+	db, err := cfg.buildDB()
 	if err != nil {
 		return err
 	}
 	defer func() {
 		_ = db.Close()
 	}()
-	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", cfg.Database)
+	query := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s %s", cfg.Database, cfg.clusterString())
 	err = db.Exec(ctx, query)
 	if err != nil {
-		return fmt.Errorf("create database:%w", err)
+		return fmt.Errorf("create database: %w", err)
 	}
 	return nil
 }
@@ -242,13 +254,8 @@ func createLogsTable(ctx context.Context, cfg *Config, db driver.Conn) error {
 }
 
 func renderCreateLogsTableSQL(cfg *Config) string {
-	ttlExpr := generateTTLExpr(cfg.TTLDays, cfg.TTL, "Timestamp")
-
-	if !cfg.Sharded {
-		createLogsTableSQL = strings.ReplaceAll(createLogsTableSQL, "ON CLUSTER '{cluster}' ", "")
-	}
-
-	return fmt.Sprintf(createLogsTableSQL, cfg.LogsTableName, ttlExpr)
+	ttlExpr := generateTTLExpr(cfg.TTL, "TimestampTime")
+	return fmt.Sprintf(createLogsTableSQL, cfg.LogsTableName, cfg.clusterString(), cfg.tableEngineString(), ttlExpr)
 }
 
 func renderInsertLogsSQL(cfg *Config) string {

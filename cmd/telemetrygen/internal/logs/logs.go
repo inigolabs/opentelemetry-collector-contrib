@@ -10,6 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/log"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.uber.org/zap"
@@ -24,13 +29,37 @@ func Start(cfg *Config) error {
 	if err != nil {
 		return err
 	}
+	expFunc := func() (sdklog.Exporter, error) {
+		var exp sdklog.Exporter
+		if cfg.UseHTTP {
+			var exporterOpts []otlploghttp.Option
 
-	e, err := newExporter(context.Background(), cfg)
-	if err != nil {
-		return err
+			logger.Info("starting HTTP exporter")
+			exporterOpts, err = httpExporterOptions(cfg)
+			if err != nil {
+				return nil, err
+			}
+			exp, err = otlploghttp.New(context.Background(), exporterOpts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to obtain OTLP HTTP exporter: %w", err)
+			}
+		} else {
+			var exporterOpts []otlploggrpc.Option
+
+			logger.Info("starting gRPC exporter")
+			exporterOpts, err = grpcExporterOptions(cfg)
+			if err != nil {
+				return nil, err
+			}
+			exp, err = otlploggrpc.New(context.Background(), exporterOpts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to obtain OTLP gRPC exporter: %w", err)
+			}
+		}
+		return exp, err
 	}
 
-	if err = Run(cfg, e, logger); err != nil {
+	if err = Run(cfg, expFunc, logger); err != nil {
 		logger.Error("failed to stop the exporter", zap.Error(err))
 		return err
 	}
@@ -39,7 +68,7 @@ func Start(cfg *Config) error {
 }
 
 // Run executes the test scenario.
-func Run(c *Config, exp exporter, logger *zap.Logger) error {
+func Run(c *Config, exp func() (sdklog.Exporter, error), logger *zap.Logger) error {
 	if c.TotalDuration > 0 {
 		c.NumLogs = 0
 	} else if c.NumLogs <= 0 {
@@ -60,17 +89,26 @@ func Run(c *Config, exp exporter, logger *zap.Logger) error {
 	running := &atomic.Bool{}
 	running.Store(true)
 
+	severityText, severityNumber, err := parseSeverity(c.SeverityText, c.SeverityNumber)
+	if err != nil {
+		return err
+	}
+
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
 		w := worker{
 			numLogs:        c.NumLogs,
 			limitPerSecond: limit,
 			body:           c.Body,
+			severityText:   severityText,
+			severityNumber: severityNumber,
 			totalDuration:  c.TotalDuration,
 			running:        running,
 			wg:             &wg,
 			logger:         logger.With(zap.Int("worker", i)),
 			index:          i,
+			traceID:        c.TraceID,
+			spanID:         c.SpanID,
 		}
 
 		go w.simulateLogs(res, exp, c.GetTelemetryAttributes())
@@ -81,4 +119,41 @@ func Run(c *Config, exp exporter, logger *zap.Logger) error {
 	}
 	wg.Wait()
 	return nil
+}
+
+func parseSeverity(severityText string, severityNumber int32) (string, log.Severity, error) {
+	sn := log.Severity(severityNumber)
+	if sn < log.SeverityTrace1 || sn > log.SeverityFatal4 {
+		return "", log.SeverityUndefined, fmt.Errorf("severity-number is out of range, the valid range is [1,24]")
+	}
+
+	// severity number should match well-known severityText
+	switch severityText {
+	case plog.SeverityNumberTrace.String():
+		if !(severityNumber >= 1 && severityNumber <= 4) {
+			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [1,4]", severityText, severityNumber)
+		}
+	case plog.SeverityNumberDebug.String():
+		if !(severityNumber >= 5 && severityNumber <= 8) {
+			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [5,8]", severityText, severityNumber)
+		}
+	case plog.SeverityNumberInfo.String():
+		if !(severityNumber >= 9 && severityNumber <= 12) {
+			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [9,12]", severityText, severityNumber)
+		}
+	case plog.SeverityNumberWarn.String():
+		if !(severityNumber >= 13 && severityNumber <= 16) {
+			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [13,16]", severityText, severityNumber)
+		}
+	case plog.SeverityNumberError.String():
+		if !(severityNumber >= 17 && severityNumber <= 20) {
+			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [17,20]", severityText, severityNumber)
+		}
+	case plog.SeverityNumberFatal.String():
+		if !(severityNumber >= 21 && severityNumber <= 24) {
+			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [21,24]", severityText, severityNumber)
+		}
+	}
+
+	return severityText, sn, nil
 }

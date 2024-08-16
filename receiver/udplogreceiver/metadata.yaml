@@ -1,11 +1,10 @@
 type: udplog
-scope_name: otelcol/udplogreceiver
 
 status:
   class: receiver
   stability:
     alpha: [logs]
-  distributions: [contrib, observiq, sumo, splunk]
+  distributions: [contrib]
   codeowners:
     active: [djaglowski]
 

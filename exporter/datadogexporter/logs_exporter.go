@@ -8,6 +8,11 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/DataDog/datadog-agent/comp/logs/agent/config"
+	"github.com/DataDog/datadog-agent/comp/otelcol/logsagentpipeline"
+	"github.com/DataDog/datadog-agent/comp/otelcol/logsagentpipeline/logsagentpipelineimpl"
+	"github.com/DataDog/datadog-agent/comp/otelcol/otlp/components/exporter/logsagentexporter"
+	"github.com/DataDog/datadog-agent/pkg/logs/sources"
 	"github.com/DataDog/opentelemetry-mapping-go/pkg/inframetadata"
 	"github.com/DataDog/opentelemetry-mapping-go/pkg/otlp/attributes"
 	"github.com/DataDog/opentelemetry-mapping-go/pkg/otlp/attributes/source"
@@ -23,12 +28,15 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/datadogexporter/internal/scrub"
 )
 
-// otelSource specifies a source to be added to all logs sent from the Datadog exporter
-// The tag has key `otel_source` and the value specified on this constant.
-const otelSource = "datadog_exporter"
+const (
+	// logSourceName specifies the Datadog source tag value to be added to logs sent from the Datadog exporter.
+	logSourceName = "otlp_log_ingestion"
+	// otelSource specifies a source to be added to all logs sent from the Datadog exporter. The tag has key `otel_source` and the value specified on this constant.
+	otelSource = "datadog_exporter"
+)
 
 type logsExporter struct {
-	params           exporter.CreateSettings
+	params           exporter.Settings
 	cfg              *Config
 	ctx              context.Context // ctx triggers shutdown upon cancellation
 	scrubber         scrub.Scrubber  // scrubber scrubs sensitive information from error messages
@@ -42,7 +50,7 @@ type logsExporter struct {
 // newLogsExporter creates a new instance of logsExporter
 func newLogsExporter(
 	ctx context.Context,
-	params exporter.CreateSettings,
+	params exporter.Settings,
 	cfg *Config,
 	onceMetadata *sync.Once,
 	attributesTranslator *attributes.Translator,
@@ -113,4 +121,42 @@ func (exp *logsExporter) consumeLogs(ctx context.Context, ld plog.Logs) (err err
 
 	payloads := exp.translator.MapLogs(ctx, ld)
 	return exp.sender.SubmitLogs(exp.ctx, payloads)
+}
+
+// newLogsAgentExporter creates new instances of the logs agent and the logs agent exporter
+func newLogsAgentExporter(
+	ctx context.Context,
+	params exporter.Settings,
+	cfg *Config,
+	sourceProvider source.Provider,
+) (logsagentpipeline.LogsAgent, *logsagentexporter.Exporter, error) {
+	logComponent := newLogComponent(params.TelemetrySettings)
+	cfgComponent := newConfigComponent(params.TelemetrySettings, cfg)
+	logsAgentConfig := &logsagentexporter.Config{
+		OtelSource:    otelSource,
+		LogSourceName: logSourceName,
+	}
+	hostnameComponent := logs.NewHostnameService(sourceProvider)
+	logsAgent := logsagentpipelineimpl.NewLogsAgent(logsagentpipelineimpl.Dependencies{
+		Log:      logComponent,
+		Config:   cfgComponent,
+		Hostname: hostnameComponent,
+	})
+	err := logsAgent.Start(ctx)
+	if err != nil {
+		return nil, &logsagentexporter.Exporter{}, fmt.Errorf("failed to create logs agent: %w", err)
+	}
+
+	pipelineChan := logsAgent.GetPipelineProvider().NextPipelineChan()
+	logSource := sources.NewLogSource(logsAgentConfig.LogSourceName, &config.LogsConfig{})
+	attributesTranslator, err := attributes.NewTranslator(params.TelemetrySettings)
+	if err != nil {
+		return nil, &logsagentexporter.Exporter{}, fmt.Errorf("failed to create attribute translator: %w", err)
+	}
+
+	logsAgentExporter, err := logsagentexporter.NewExporter(params.TelemetrySettings, logsAgentConfig, logSource, pipelineChan, attributesTranslator)
+	if err != nil {
+		return nil, &logsagentexporter.Exporter{}, fmt.Errorf("failed to create logs agent exporter: %w", err)
+	}
+	return logsAgent, logsAgentExporter, nil
 }

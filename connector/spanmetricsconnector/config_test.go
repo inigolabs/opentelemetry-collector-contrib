@@ -27,10 +27,12 @@ func TestLoadConfig(t *testing.T) {
 
 	defaultMethod := "GET"
 	defaultMaxPerDatapoint := 5
+	customTimestampCacheSize := 123
 	tests := []struct {
-		id           component.ID
-		expected     component.Config
-		errorMessage string
+		id              component.ID
+		expected        component.Config
+		errorMessage    string
+		extraAssertions func(config *Config)
 	}{
 		{
 			id:       component.NewIDWithName(metadata.Type, "default"),
@@ -71,7 +73,7 @@ func TestLoadConfig(t *testing.T) {
 				AggregationTemporality:   cumulative,
 				DimensionsCacheSize:      defaultDimensionsCacheSize,
 				ResourceMetricsCacheSize: defaultResourceMetricsCacheSize,
-				MetricsFlushInterval:     15 * time.Second,
+				MetricsFlushInterval:     60 * time.Second,
 				Histogram: HistogramConfig{
 					Unit: metrics.Milliseconds,
 					Exponential: &ExponentialHistogramConfig{
@@ -98,7 +100,7 @@ func TestLoadConfig(t *testing.T) {
 				AggregationTemporality:   "AGGREGATION_TEMPORALITY_CUMULATIVE",
 				DimensionsCacheSize:      defaultDimensionsCacheSize,
 				ResourceMetricsCacheSize: defaultResourceMetricsCacheSize,
-				MetricsFlushInterval:     15 * time.Second,
+				MetricsFlushInterval:     60 * time.Second,
 				Histogram:                HistogramConfig{Disable: false, Unit: defaultUnit},
 				Exemplars:                ExemplarsConfig{Enabled: true},
 			},
@@ -109,7 +111,7 @@ func TestLoadConfig(t *testing.T) {
 				AggregationTemporality:   "AGGREGATION_TEMPORALITY_CUMULATIVE",
 				DimensionsCacheSize:      defaultDimensionsCacheSize,
 				ResourceMetricsCacheSize: defaultResourceMetricsCacheSize,
-				MetricsFlushInterval:     15 * time.Second,
+				MetricsFlushInterval:     60 * time.Second,
 				Histogram:                HistogramConfig{Disable: false, Unit: defaultUnit},
 				Exemplars:                ExemplarsConfig{Enabled: true, MaxPerDataPoint: &defaultMaxPerDatapoint},
 			},
@@ -121,9 +123,37 @@ func TestLoadConfig(t *testing.T) {
 				DimensionsCacheSize:          defaultDimensionsCacheSize,
 				ResourceMetricsCacheSize:     defaultResourceMetricsCacheSize,
 				ResourceMetricsKeyAttributes: []string{"service.name", "telemetry.sdk.language", "telemetry.sdk.name"},
-				MetricsFlushInterval:         15 * time.Second,
+				MetricsFlushInterval:         60 * time.Second,
 				Histogram:                    HistogramConfig{Disable: false, Unit: defaultUnit},
 			},
+		},
+		{
+			id: component.NewIDWithName(metadata.Type, "custom_delta_timestamp_cache_size"),
+			expected: &Config{
+				AggregationTemporality:   "AGGREGATION_TEMPORALITY_DELTA",
+				TimestampCacheSize:       &customTimestampCacheSize,
+				DimensionsCacheSize:      defaultDimensionsCacheSize,
+				ResourceMetricsCacheSize: defaultResourceMetricsCacheSize,
+				MetricsFlushInterval:     60 * time.Second,
+				Histogram:                HistogramConfig{Disable: false, Unit: defaultUnit},
+			},
+		},
+		{
+			id: component.NewIDWithName(metadata.Type, "default_delta_timestamp_cache_size"),
+			expected: &Config{
+				AggregationTemporality:   "AGGREGATION_TEMPORALITY_DELTA",
+				DimensionsCacheSize:      defaultDimensionsCacheSize,
+				ResourceMetricsCacheSize: defaultResourceMetricsCacheSize,
+				MetricsFlushInterval:     60 * time.Second,
+				Histogram:                HistogramConfig{Disable: false, Unit: defaultUnit},
+			},
+			extraAssertions: func(config *Config) {
+				assert.Equal(t, defaultDeltaTimestampCacheSize, config.GetDeltaTimestampCacheSize())
+			},
+		},
+		{
+			id:           component.NewIDWithName(metadata.Type, "invalid_delta_timestamp_cache_size"),
+			errorMessage: "invalid delta timestamp cache size: 0, the maximum number of the items in the cache should be positive",
 		},
 	}
 
@@ -134,7 +164,7 @@ func TestLoadConfig(t *testing.T) {
 
 			sub, err := cm.Sub(tt.id.String())
 			require.NoError(t, err)
-			err = component.UnmarshalConfig(sub, cfg)
+			err = sub.Unmarshal(cfg)
 
 			if tt.expected == nil {
 				err = errors.Join(err, component.ValidateConfig(cfg))
@@ -143,6 +173,9 @@ func TestLoadConfig(t *testing.T) {
 			}
 			assert.NoError(t, component.ValidateConfig(cfg))
 			assert.Equal(t, tt.expected, cfg)
+			if tt.extraAssertions != nil {
+				tt.extraAssertions(cfg.(*Config))
+			}
 		})
 	}
 }

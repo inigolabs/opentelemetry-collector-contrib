@@ -39,7 +39,7 @@ func TestLoadConfig(t *testing.T) {
 				ClientConfig: confighttp.ClientConfig{
 					Endpoint: "localhost:1234",
 					TLSSetting: configtls.ClientConfig{
-						TLSSetting: configtls.Config{
+						Config: configtls.Config{
 							CAFile:   "path",
 							CertFile: "path",
 							KeyFile:  "path",
@@ -85,7 +85,7 @@ func TestLoadConfig(t *testing.T) {
 
 			sub, err := cm.Sub(tt.id.String())
 			require.NoError(t, err)
-			require.NoError(t, component.UnmarshalConfig(sub, cfg))
+			require.NoError(t, sub.Unmarshal(cfg))
 
 			assert.NoError(t, component.ValidateConfig(cfg))
 			assert.Equal(t, tt.expected, cfg)

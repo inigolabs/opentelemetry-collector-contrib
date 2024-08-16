@@ -1,11 +1,10 @@
 type: saphana
-scope_name: otelcol/saphanareceiver
 
 status:
   class: receiver
   stability:
     development: [metrics]
-  distributions: [observiq, sumo]
+  distributions: []
   codeowners:
     active: [dehaansa]
 

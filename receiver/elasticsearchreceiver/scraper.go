@@ -43,7 +43,7 @@ type elasticsearchScraper struct {
 }
 
 func newElasticSearchScraper(
-	settings receiver.CreateSettings,
+	settings receiver.Settings,
 	cfg *Config,
 ) *elasticsearchScraper {
 	return &elasticsearchScraper{
@@ -53,8 +53,8 @@ func newElasticSearchScraper(
 	}
 }
 
-func (r *elasticsearchScraper) start(_ context.Context, host component.Host) (err error) {
-	r.client, err = newElasticsearchClient(r.settings, *r.cfg, host)
+func (r *elasticsearchScraper) start(ctx context.Context, host component.Host) (err error) {
+	r.client, err = newElasticsearchClient(ctx, r.settings, *r.cfg, host)
 	return
 }
 
@@ -560,6 +560,10 @@ func (r *elasticsearchScraper) scrapeOneIndexMetrics(now pcommon.Timestamp, name
 	)
 	r.mb.RecordElasticsearchIndexOperationsMergeDocsCountDataPoint(
 		now, stats.Total.MergeOperations.TotalDocs, metadata.AttributeIndexAggregationTypeTotal,
+	)
+
+	r.mb.RecordElasticsearchIndexOperationsMergeCurrentDataPoint(
+		now, stats.Total.MergeOperations.Current, metadata.AttributeIndexAggregationTypeTotal,
 	)
 
 	r.mb.RecordElasticsearchIndexShardsSizeDataPoint(

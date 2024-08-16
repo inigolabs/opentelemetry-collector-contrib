@@ -1,5 +1,4 @@
 type: sigv4auth
-scope_name: otelcol/sigv4auth
 
 status:
   class: extension
@@ -7,10 +6,6 @@ status:
     beta: [extension]
   distributions:
   - contrib
-  - aws
-  - grafana
-  - sumo
-  - liatrio
   codeowners:
     active: [Aneurysm9, erichsueh3]
 

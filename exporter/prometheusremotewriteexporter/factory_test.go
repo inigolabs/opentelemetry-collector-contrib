@@ -30,7 +30,7 @@ func Test_createMetricsExporter(t *testing.T) {
 	invalidConfig.ClientConfig = confighttp.ClientConfig{}
 	invalidTLSConfig := createDefaultConfig().(*Config)
 	invalidTLSConfig.ClientConfig.TLSSetting = configtls.ClientConfig{
-		TLSSetting: configtls.Config{
+		Config: configtls.Config{
 			CAFile:   "non-existent file",
 			CertFile: "",
 			KeyFile:  "",
@@ -41,31 +41,31 @@ func Test_createMetricsExporter(t *testing.T) {
 	tests := []struct {
 		name                string
 		cfg                 component.Config
-		set                 exporter.CreateSettings
+		set                 exporter.Settings
 		returnErrorOnCreate bool
 		returnErrorOnStart  bool
 	}{
 		{"success_case",
 			createDefaultConfig(),
-			exportertest.NewNopCreateSettings(),
+			exportertest.NewNopSettings(),
 			false,
 			false,
 		},
 		{"fail_case",
 			nil,
-			exportertest.NewNopCreateSettings(),
+			exportertest.NewNopSettings(),
 			true,
 			false,
 		},
 		{"invalid_config_case",
 			invalidConfig,
-			exportertest.NewNopCreateSettings(),
+			exportertest.NewNopSettings(),
 			true,
 			false,
 		},
 		{"invalid_tls_config_case",
 			invalidTLSConfig,
-			exportertest.NewNopCreateSettings(),
+			exportertest.NewNopSettings(),
 			false,
 			true,
 		},

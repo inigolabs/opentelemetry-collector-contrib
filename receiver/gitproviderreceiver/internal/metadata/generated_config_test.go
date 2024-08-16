@@ -9,7 +9,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 )
 
@@ -26,18 +25,22 @@ func TestMetricsBuilderConfig(t *testing.T) {
 			name: "all_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
-					GitRepositoryBranchCount:             MetricConfig{Enabled: true},
-					GitRepositoryContributorCount:        MetricConfig{Enabled: true},
-					GitRepositoryCount:                   MetricConfig{Enabled: true},
-					GitRepositoryPullRequestApprovedTime: MetricConfig{Enabled: true},
-					GitRepositoryPullRequestMergedCount:  MetricConfig{Enabled: true},
-					GitRepositoryPullRequestMergedTime:   MetricConfig{Enabled: true},
-					GitRepositoryPullRequestOpenCount:    MetricConfig{Enabled: true},
-					GitRepositoryPullRequestOpenTime:     MetricConfig{Enabled: true},
+					VcsRepositoryChangeCount:          MetricConfig{Enabled: true},
+					VcsRepositoryChangeTimeOpen:       MetricConfig{Enabled: true},
+					VcsRepositoryChangeTimeToApproval: MetricConfig{Enabled: true},
+					VcsRepositoryChangeTimeToMerge:    MetricConfig{Enabled: true},
+					VcsRepositoryContributorCount:     MetricConfig{Enabled: true},
+					VcsRepositoryCount:                MetricConfig{Enabled: true},
+					VcsRepositoryRefCount:             MetricConfig{Enabled: true},
+					VcsRepositoryRefLinesAdded:        MetricConfig{Enabled: true},
+					VcsRepositoryRefLinesDeleted:      MetricConfig{Enabled: true},
+					VcsRepositoryRefRevisionsAhead:    MetricConfig{Enabled: true},
+					VcsRepositoryRefRevisionsBehind:   MetricConfig{Enabled: true},
+					VcsRepositoryRefTime:              MetricConfig{Enabled: true},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
-					GitVendorName:    ResourceAttributeConfig{Enabled: true},
 					OrganizationName: ResourceAttributeConfig{Enabled: true},
+					VcsVendorName:    ResourceAttributeConfig{Enabled: true},
 				},
 			},
 		},
@@ -45,18 +48,22 @@ func TestMetricsBuilderConfig(t *testing.T) {
 			name: "none_set",
 			want: MetricsBuilderConfig{
 				Metrics: MetricsConfig{
-					GitRepositoryBranchCount:             MetricConfig{Enabled: false},
-					GitRepositoryContributorCount:        MetricConfig{Enabled: false},
-					GitRepositoryCount:                   MetricConfig{Enabled: false},
-					GitRepositoryPullRequestApprovedTime: MetricConfig{Enabled: false},
-					GitRepositoryPullRequestMergedCount:  MetricConfig{Enabled: false},
-					GitRepositoryPullRequestMergedTime:   MetricConfig{Enabled: false},
-					GitRepositoryPullRequestOpenCount:    MetricConfig{Enabled: false},
-					GitRepositoryPullRequestOpenTime:     MetricConfig{Enabled: false},
+					VcsRepositoryChangeCount:          MetricConfig{Enabled: false},
+					VcsRepositoryChangeTimeOpen:       MetricConfig{Enabled: false},
+					VcsRepositoryChangeTimeToApproval: MetricConfig{Enabled: false},
+					VcsRepositoryChangeTimeToMerge:    MetricConfig{Enabled: false},
+					VcsRepositoryContributorCount:     MetricConfig{Enabled: false},
+					VcsRepositoryCount:                MetricConfig{Enabled: false},
+					VcsRepositoryRefCount:             MetricConfig{Enabled: false},
+					VcsRepositoryRefLinesAdded:        MetricConfig{Enabled: false},
+					VcsRepositoryRefLinesDeleted:      MetricConfig{Enabled: false},
+					VcsRepositoryRefRevisionsAhead:    MetricConfig{Enabled: false},
+					VcsRepositoryRefRevisionsBehind:   MetricConfig{Enabled: false},
+					VcsRepositoryRefTime:              MetricConfig{Enabled: false},
 				},
 				ResourceAttributes: ResourceAttributesConfig{
-					GitVendorName:    ResourceAttributeConfig{Enabled: false},
 					OrganizationName: ResourceAttributeConfig{Enabled: false},
+					VcsVendorName:    ResourceAttributeConfig{Enabled: false},
 				},
 			},
 		},
@@ -77,7 +84,7 @@ func loadMetricsBuilderConfig(t *testing.T, name string) MetricsBuilderConfig {
 	sub, err := cm.Sub(name)
 	require.NoError(t, err)
 	cfg := DefaultMetricsBuilderConfig()
-	require.NoError(t, component.UnmarshalConfig(sub, &cfg))
+	require.NoError(t, sub.Unmarshal(&cfg))
 	return cfg
 }
 
@@ -93,15 +100,15 @@ func TestResourceAttributesConfig(t *testing.T) {
 		{
 			name: "all_set",
 			want: ResourceAttributesConfig{
-				GitVendorName:    ResourceAttributeConfig{Enabled: true},
 				OrganizationName: ResourceAttributeConfig{Enabled: true},
+				VcsVendorName:    ResourceAttributeConfig{Enabled: true},
 			},
 		},
 		{
 			name: "none_set",
 			want: ResourceAttributesConfig{
-				GitVendorName:    ResourceAttributeConfig{Enabled: false},
 				OrganizationName: ResourceAttributeConfig{Enabled: false},
+				VcsVendorName:    ResourceAttributeConfig{Enabled: false},
 			},
 		},
 	}
@@ -123,6 +130,6 @@ func loadResourceAttributesConfig(t *testing.T, name string) ResourceAttributesC
 	sub, err = sub.Sub("resource_attributes")
 	require.NoError(t, err)
 	cfg := DefaultResourceAttributesConfig()
-	require.NoError(t, component.UnmarshalConfig(sub, &cfg))
+	require.NoError(t, sub.Unmarshal(&cfg))
 	return cfg
 }

@@ -5,12 +5,12 @@ package attraction
 
 import (
 	"context"
-	"crypto/sha1" // #nosec
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"regexp"
 	"testing"
 
@@ -930,20 +930,6 @@ func TestValidConfiguration(t *testing.T) {
 }
 
 func hash(b []byte) string {
-	if enableSha256Gate.IsEnabled() {
-		return sha2Hash(b)
-	}
-	return sha1Hash(b)
-}
-
-func sha1Hash(b []byte) string {
-	// #nosec
-	h := sha1.New()
-	h.Write(b)
-	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-func sha2Hash(b []byte) string {
 	h := sha256.New()
 	h.Write(b)
 	return fmt.Sprintf("%x", h.Sum(nil))
@@ -972,6 +958,9 @@ func TestFromContext(t *testing.T) {
 		}),
 		Auth: mockInfoAuth{
 			"source_auth_val": "auth_val",
+		},
+		Addr: &net.IPAddr{
+			IP: net.IPv4(192, 168, 1, 1),
 		},
 	})
 
@@ -1022,6 +1011,12 @@ func TestFromContext(t *testing.T) {
 			ctx:                mdCtx,
 			expectedAttributes: map[string]any{},
 			action:             &ActionKeyValue{Key: "dest", FromContext: "auth.unknown_val", Action: INSERT},
+		},
+		{
+			name:               "with_address",
+			ctx:                mdCtx,
+			expectedAttributes: map[string]any{"dest": "192.168.1.1"},
+			action:             &ActionKeyValue{Key: "dest", FromContext: "client.address", Action: INSERT},
 		},
 	}
 

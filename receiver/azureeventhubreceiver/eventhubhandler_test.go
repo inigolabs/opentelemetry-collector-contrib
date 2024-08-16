@@ -57,13 +57,18 @@ func (m mockListenerHandleWrapper) Err() error {
 }
 
 type mockDataConsumer struct {
-	logsUnmarshaler  eventLogsUnmarshaler
-	nextLogsConsumer consumer.Logs
-	obsrecv          *receiverhelper.ObsReport
+	logsUnmarshaler    eventLogsUnmarshaler
+	nextLogsConsumer   consumer.Logs
+	nextTracesConsumer consumer.Traces
+	obsrecv            *receiverhelper.ObsReport
 }
 
 func (m *mockDataConsumer) setNextLogsConsumer(nextLogsConsumer consumer.Logs) {
 	m.nextLogsConsumer = nextLogsConsumer
+}
+
+func (m *mockDataConsumer) setNextTracesConsumer(nextTracesConsumer consumer.Traces) {
+	m.nextTracesConsumer = nextTracesConsumer
 }
 
 func (m *mockDataConsumer) setNextMetricsConsumer(_ consumer.Metrics) {}
@@ -84,26 +89,21 @@ func (m *mockDataConsumer) consume(ctx context.Context, event *eventhub.Event) e
 }
 
 func TestEventhubHandler_Start(t *testing.T) {
-
 	config := createDefaultConfig()
 	config.(*Config).Connection = "Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=superSecret1234=;EntityPath=hubName"
 
 	ehHandler := &eventhubHandler{
-		settings:     receivertest.NewNopCreateSettings(),
+		settings:     receivertest.NewNopSettings(),
 		dataConsumer: &mockDataConsumer{},
 		config:       config.(*Config),
 	}
 	ehHandler.hub = &mockHubWrapper{}
 
-	err := ehHandler.run(context.Background(), componenttest.NewNopHost())
-	assert.NoError(t, err)
-
-	err = ehHandler.close(context.Background())
-	assert.NoError(t, err)
+	assert.NoError(t, ehHandler.run(context.Background(), componenttest.NewNopHost()))
+	assert.NoError(t, ehHandler.close(context.Background()))
 }
 
 func TestEventhubHandler_newMessageHandler(t *testing.T) {
-
 	config := createDefaultConfig()
 	config.(*Config).Connection = "Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=superSecret1234=;EntityPath=hubName"
 
@@ -112,12 +112,12 @@ func TestEventhubHandler_newMessageHandler(t *testing.T) {
 		ReceiverID:             component.NewID(metadata.Type),
 		Transport:              "",
 		LongLivedCtx:           false,
-		ReceiverCreateSettings: receivertest.NewNopCreateSettings(),
+		ReceiverCreateSettings: receivertest.NewNopSettings(),
 	})
 	require.NoError(t, err)
 
 	ehHandler := &eventhubHandler{
-		settings: receivertest.NewNopCreateSettings(),
+		settings: receivertest.NewNopSettings(),
 		config:   config.(*Config),
 		dataConsumer: &mockDataConsumer{
 			logsUnmarshaler:  newRawLogsUnmarshaler(zap.NewNop()),
@@ -127,8 +127,7 @@ func TestEventhubHandler_newMessageHandler(t *testing.T) {
 	}
 	ehHandler.hub = &mockHubWrapper{}
 
-	err = ehHandler.run(context.Background(), componenttest.NewNopHost())
-	assert.NoError(t, err)
+	assert.NoError(t, ehHandler.run(context.Background(), componenttest.NewNopHost()))
 
 	now := time.Now()
 	err = ehHandler.newMessageHandler(context.Background(), &eventhub.Event{
@@ -154,4 +153,5 @@ func TestEventhubHandler_newMessageHandler(t *testing.T) {
 	read, ok := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Attributes().Get("foo")
 	assert.True(t, ok)
 	assert.Equal(t, "bar", read.AsString())
+	assert.NoError(t, ehHandler.close(context.Background()))
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/confignet"
 	"go.opentelemetry.io/collector/consumer"
@@ -89,7 +90,7 @@ func Test_carbonreceiver_New(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newMetricsReceiver(receivertest.NewNopCreateSettings(), tt.args.config, tt.args.nextConsumer)
+			got, err := newMetricsReceiver(receivertest.NewNopSettings(), tt.args.config, tt.args.nextConsumer)
 			assert.Equal(t, tt.wantErr, err)
 			if err == nil {
 				require.NotNil(t, got)
@@ -131,7 +132,7 @@ func Test_carbonreceiver_Start(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newMetricsReceiver(receivertest.NewNopCreateSettings(), tt.args.config, tt.args.nextConsumer)
+			got, err := newMetricsReceiver(receivertest.NewNopSettings(), tt.args.config, tt.args.nextConsumer)
 			require.NoError(t, err)
 			err = got.Start(context.Background(), componenttest.NewNopHost())
 			assert.Equal(t, tt.wantErr, err)
@@ -190,8 +191,11 @@ func Test_carbonreceiver_EndToEnd(t *testing.T) {
 			sink := new(consumertest.MetricsSink)
 			recorder := tracetest.NewSpanRecorder()
 			rt := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-			cs := receivertest.NewNopCreateSettings()
+			cs := receivertest.NewNopSettings()
 			cs.TracerProvider = rt
+			cs.ReportStatus = func(event *component.StatusEvent) {
+				assert.NoError(t, event.Err())
+			}
 			rcv, err := newMetricsReceiver(cs, *cfg, sink)
 			require.NoError(t, err)
 			r := rcv.(*carbonReceiver)

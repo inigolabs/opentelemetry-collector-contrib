@@ -48,7 +48,7 @@ func TestCreateReceiver(t *testing.T) {
 		},
 	}
 	traceSink := new(consumertest.TracesSink)
-	set := receivertest.NewNopCreateSettings()
+	set := receivertest.NewNopSettings()
 	tReceiver, err := factory.CreateTracesReceiver(context.Background(), set, cfg, traceSink)
 	assert.NoError(t, err, "trace receiver creation failed")
 	assert.NotNil(t, tReceiver, "trace receiver creation failed")
@@ -68,9 +68,9 @@ func TestCreateReceiverGeneralConfig(t *testing.T) {
 
 	sub, err := cm.Sub(component.NewIDWithName(metadata.Type, "customname").String())
 	require.NoError(t, err)
-	require.NoError(t, component.UnmarshalConfig(sub, cfg))
+	require.NoError(t, sub.Unmarshal(cfg))
 
-	set := receivertest.NewNopCreateSettings()
+	set := receivertest.NewNopSettings()
 	traceSink := new(consumertest.TracesSink)
 	tReceiver, err := factory.CreateTracesReceiver(context.Background(), set, cfg, traceSink)
 	assert.NoError(t, err, "trace receiver creation failed")
@@ -93,7 +93,7 @@ func TestCreateDefaultGRPCEndpoint(t *testing.T) {
 		},
 	}
 	traceSink := new(consumertest.TracesSink)
-	set := receivertest.NewNopCreateSettings()
+	set := receivertest.NewNopSettings()
 	r, err := factory.CreateTracesReceiver(context.Background(), set, cfg, traceSink)
 	assert.NoError(t, err, "unexpected error creating receiver")
 	assert.Equal(t, 11800, r.(*sharedcomponent.SharedComponent).
@@ -110,13 +110,13 @@ func TestCreateTLSGPRCEndpoint(t *testing.T) {
 			Transport: confignet.TransportTypeTCP,
 		},
 		TLSSetting: &configtls.ServerConfig{
-			TLSSetting: configtls.Config{
+			Config: configtls.Config{
 				CertFile: "./testdata/server.crt",
 				KeyFile:  "./testdata/server.key",
 			},
 		},
 	}
-	set := receivertest.NewNopCreateSettings()
+	set := receivertest.NewNopSettings()
 	traceSink := new(consumertest.TracesSink)
 	_, err := factory.CreateTracesReceiver(context.Background(), set, cfg, traceSink)
 	assert.NoError(t, err, "tls-enabled receiver creation failed")
@@ -129,14 +129,14 @@ func TestCreateTLSHTTPEndpoint(t *testing.T) {
 	cfg.(*Config).Protocols.HTTP = &confighttp.ServerConfig{
 		Endpoint: "0.0.0.0:12800",
 		TLSSetting: &configtls.ServerConfig{
-			TLSSetting: configtls.Config{
+			Config: configtls.Config{
 				CertFile: "./testdata/server.crt",
 				KeyFile:  "./testdata/server.key",
 			},
 		},
 	}
 
-	set := receivertest.NewNopCreateSettings()
+	set := receivertest.NewNopSettings()
 	traceSink := new(consumertest.TracesSink)
 	_, err := factory.CreateTracesReceiver(context.Background(), set, cfg, traceSink)
 	assert.NoError(t, err, "tls-enabled receiver creation failed")
@@ -149,7 +149,7 @@ func TestCreateInvalidHTTPEndpoint(t *testing.T) {
 	cfg.(*Config).Protocols.HTTP = &confighttp.ServerConfig{
 		Endpoint: "0.0.0.0:12800",
 	}
-	set := receivertest.NewNopCreateSettings()
+	set := receivertest.NewNopSettings()
 	traceSink := new(consumertest.TracesSink)
 	r, err := factory.CreateTracesReceiver(context.Background(), set, cfg, traceSink)
 	assert.NoError(t, err, "unexpected error creating receiver")

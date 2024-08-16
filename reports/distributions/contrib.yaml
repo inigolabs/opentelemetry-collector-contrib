@@ -5,6 +5,11 @@ components:
     connector:
         - count
         - datadog
+        - exceptions
+        - failover
+        - grafanacloud
+        - otlpjson
+        - roundrobin
         - routing
         - servicegraph
         - spanmetrics
@@ -23,7 +28,6 @@ components:
         - coralogix
         - datadog
         - dataset
-        - dynatrace
         - elasticsearch
         - file
         - googlecloud
@@ -43,10 +47,10 @@ components:
         - prometheus
         - prometheusremotewrite
         - pulsar
+        - rabbitmq
         - sapm
         - sentry
         - signalfx
-        - skywalking
         - splunk_hec
         - sumologic
         - syslog
@@ -121,6 +125,7 @@ components:
         - filestats
         - flinkmetrics
         - fluentforward
+        - googlecloudmonitoring
         - googlecloudspanner
         - haproxy
         - hostmetrics

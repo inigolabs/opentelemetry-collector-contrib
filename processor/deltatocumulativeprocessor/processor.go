@@ -18,8 +18,11 @@ import (
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics/staleness"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor/internal/data"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor/internal/delta"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor/internal/maybe"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor/internal/metadata"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor/internal/metrics"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor/internal/streams"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor/internal/telemetry"
 )
 
 var _ processor.Metrics = (*Processor)(nil)
@@ -31,44 +34,69 @@ type Processor struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	aggr  streams.Aggregator[data.Number]
-	stale *staleness.Staleness[data.Number]
+	sums Pipeline[data.Number]
+	expo Pipeline[data.ExpHistogram]
+	hist Pipeline[data.Histogram]
 
 	mtx sync.Mutex
 }
 
-func newProcessor(cfg *Config, log *zap.Logger, next consumer.Metrics) *Processor {
+func newProcessor(cfg *Config, log *zap.Logger, telb *metadata.TelemetryBuilder, next consumer.Metrics) *Processor {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	tel := telemetry.New(telb)
 	proc := Processor{
 		log:    log,
 		ctx:    ctx,
 		cancel: cancel,
 		next:   next,
+
+		sums: pipeline[data.Number](cfg, &tel),
+		expo: pipeline[data.ExpHistogram](cfg, &tel),
+		hist: pipeline[data.Histogram](cfg, &tel),
 	}
 
-	var dps streams.Map[data.Number]
-	dps = delta.New[data.Number]()
+	return &proc
+}
+
+type Pipeline[D data.Point[D]] struct {
+	aggr  streams.Aggregator[D]
+	stale maybe.Ptr[staleness.Staleness[D]]
+}
+
+func pipeline[D data.Point[D]](cfg *Config, tel *telemetry.Telemetry) Pipeline[D] {
+	var pipe Pipeline[D]
+
+	var dps streams.Map[D]
+	dps = delta.New[D]()
+	dps = telemetry.ObserveItems(dps, &tel.Metrics)
 
 	if cfg.MaxStale > 0 {
-		stale := staleness.NewStaleness(cfg.MaxStale, dps)
-		proc.stale = stale
-		dps = stale
+		tel.WithStale(cfg.MaxStale)
+		stale := maybe.Some(staleness.NewStaleness(cfg.MaxStale, dps))
+		pipe.stale = stale
+		dps, _ = stale.Try()
 	}
 	if cfg.MaxStreams > 0 {
+		tel.WithLimit(int64(cfg.MaxStreams))
 		lim := streams.Limit(dps, cfg.MaxStreams)
-		if proc.stale != nil {
-			lim.Evictor = proc.stale
+		if stale, ok := pipe.stale.Try(); ok {
+			lim.Evictor = stale
 		}
 		dps = lim
 	}
 
-	proc.aggr = streams.IntoAggregator(dps)
-	return &proc
+	dps = telemetry.ObserveNonFatal(dps, &tel.Metrics)
+
+	pipe.aggr = streams.IntoAggregator(dps)
+	return pipe
 }
 
 func (p *Processor) Start(_ context.Context, _ component.Host) error {
-	if p.stale == nil {
+	sums, sok := p.sums.stale.Try()
+	expo, eok := p.expo.stale.Try()
+	hist, hok := p.hist.stale.Try()
+	if !(sok && eok && hok) {
 		return nil
 	}
 
@@ -80,7 +108,9 @@ func (p *Processor) Start(_ context.Context, _ component.Host) error {
 				return
 			case <-tick.C:
 				p.mtx.Lock()
-				p.stale.ExpireOldEntries()
+				sums.ExpireOldEntries()
+				expo.ExpireOldEntries()
+				hist.ExpireOldEntries()
 				p.mtx.Unlock()
 			}
 		}
@@ -98,27 +128,39 @@ func (p *Processor) Capabilities() consumer.Capabilities {
 }
 
 func (p *Processor) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
+	if err := context.Cause(p.ctx); err != nil {
+		return err
+	}
+
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
 	var errs error
-
 	metrics.Each(md, func(m metrics.Metric) {
 		switch m.Type() {
 		case pmetric.MetricTypeSum:
 			sum := m.Sum()
 			if sum.AggregationTemporality() == pmetric.AggregationTemporalityDelta {
-				err := streams.Aggregate[data.Number](metrics.Sum(m), p.aggr)
+				err := streams.Apply(metrics.Sum(m), p.sums.aggr.Aggregate)
 				errs = errors.Join(errs, err)
 				sum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 			}
 		case pmetric.MetricTypeHistogram:
-			// TODO
+			hist := m.Histogram()
+			if hist.AggregationTemporality() == pmetric.AggregationTemporalityDelta {
+				err := streams.Apply(metrics.Histogram(m), p.hist.aggr.Aggregate)
+				errs = errors.Join(errs, err)
+				hist.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+			}
 		case pmetric.MetricTypeExponentialHistogram:
-			// TODO
+			expo := m.ExponentialHistogram()
+			if expo.AggregationTemporality() == pmetric.AggregationTemporalityDelta {
+				err := streams.Apply(metrics.ExpHistogram(m), p.expo.aggr.Aggregate)
+				errs = errors.Join(errs, err)
+				expo.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+			}
 		}
 	})
-
 	if errs != nil {
 		return errs
 	}

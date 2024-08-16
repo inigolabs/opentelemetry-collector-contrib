@@ -89,7 +89,7 @@ func TestValidate(t *testing.T) {
 					Secret:   "some_secret",
 					Mode:     alertModeListen,
 					TLS: &configtls.ServerConfig{
-						TLSSetting: configtls.Config{
+						Config: configtls.Config{
 							CertFile: "some_cert_file",
 						},
 					},
@@ -107,7 +107,7 @@ func TestValidate(t *testing.T) {
 					Secret:   "some_secret",
 					Mode:     alertModeListen,
 					TLS: &configtls.ServerConfig{
-						TLSSetting: configtls.Config{
+						Config: configtls.Config{
 							KeyFile: "some_key_file",
 						},
 					},
@@ -358,7 +358,7 @@ func TestLoadConfig(t *testing.T) {
 
 	sub, err := cm.Sub(component.NewIDWithName(metadata.Type, "").String())
 	require.NoError(t, err)
-	require.NoError(t, component.UnmarshalConfig(sub, cfg))
+	require.NoError(t, sub.Unmarshal(cfg))
 
 	expected := factory.CreateDefaultConfig().(*Config)
 	expected.MetricsBuilderConfig = metadata.DefaultMetricsBuilderConfig()

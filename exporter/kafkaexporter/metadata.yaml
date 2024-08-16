@@ -1,11 +1,10 @@
 type: kafka
-scope_name: otelcol/kafka
 
 status:
   class: exporter
   stability:
     beta: [traces, metrics, logs]
-  distributions: [core, contrib, observiq, splunk, sumo, aws]
+  distributions: [core, contrib]
   codeowners:
     active: [pavolloffay, MovieStoreGuy]
 

@@ -4,22 +4,13 @@ package metadata
 
 import (
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var (
-	Type = component.MustNewType("instana")
+	Type      = component.MustNewType("instana")
+	ScopeName = "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/instanaexporter"
 )
 
 const (
-	TracesStability = component.StabilityLevelAlpha
+	TracesStability = component.StabilityLevelDeprecated
 )
-
-func Meter(settings component.TelemetrySettings) metric.Meter {
-	return settings.MeterProvider.Meter("otelcol/instana")
-}
-
-func Tracer(settings component.TelemetrySettings) trace.Tracer {
-	return settings.TracerProvider.Tracer("otelcol/instana")
-}

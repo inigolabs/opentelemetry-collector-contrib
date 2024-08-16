@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -22,23 +23,25 @@ import (
 // for the Agent process to finish.
 type Commander struct {
 	logger  *zap.Logger
-	cfg     *config.Agent
+	cfg     config.Agent
+	logsDir string
 	args    []string
 	cmd     *exec.Cmd
 	doneCh  chan struct{}
+	exitCh  chan struct{}
 	running *atomic.Int64
 }
 
-func NewCommander(logger *zap.Logger, cfg *config.Agent, args ...string) (*Commander, error) {
-	if cfg.Executable == "" {
-		return nil, errors.New("agent.executable config option must be specified")
-	}
-
+func NewCommander(logger *zap.Logger, logsDir string, cfg config.Agent, args ...string) (*Commander, error) {
 	return &Commander{
 		logger:  logger,
+		logsDir: logsDir,
 		cfg:     cfg,
 		args:    args,
 		running: &atomic.Int64{},
+		// Buffer channels so we can send messages without blocking on listeners.
+		doneCh: make(chan struct{}, 1),
+		exitCh: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -52,9 +55,24 @@ func (c *Commander) Start(ctx context.Context) error {
 		return nil
 	}
 
+	// Drain channels in case there are no listeners that
+	// drained messages from previous runs.
+	if len(c.doneCh) > 0 {
+		select {
+		case <-c.doneCh:
+		default:
+		}
+	}
+	if len(c.exitCh) > 0 {
+		select {
+		case <-c.exitCh:
+		default:
+		}
+	}
+
 	c.logger.Debug("Starting agent", zap.String("agent", c.cfg.Executable))
 
-	logFilePath := "agent.log"
+	logFilePath := filepath.Join(c.logsDir, "agent.log")
 	logFile, err := os.Create(logFilePath)
 	if err != nil {
 		return fmt.Errorf("cannot create %s: %w", logFilePath, err)
@@ -66,8 +84,6 @@ func (c *Commander) Start(ctx context.Context) error {
 	// https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/21072
 	c.cmd.Stdout = logFile
 	c.cmd.Stderr = logFile
-
-	c.doneCh = make(chan struct{})
 
 	if err := c.cmd.Start(); err != nil {
 		return err
@@ -82,6 +98,7 @@ func (c *Commander) Start(ctx context.Context) error {
 }
 
 func (c *Commander) Restart(ctx context.Context) error {
+	c.logger.Debug("Restarting agent", zap.String("agent", c.cfg.Executable))
 	if err := c.Stop(ctx); err != nil {
 		return err
 	}
@@ -101,12 +118,13 @@ func (c *Commander) watch() {
 	}
 
 	c.running.Store(0)
-	close(c.doneCh)
+	c.doneCh <- struct{}{}
+	c.exitCh <- struct{}{}
 }
 
-// Done returns a channel that will send a signal when the Agent process is finished.
-func (c *Commander) Done() <-chan struct{} {
-	return c.doneCh
+// Exited returns a channel that will send a signal when the Agent process exits.
+func (c *Commander) Exited() <-chan struct{} {
+	return c.exitCh
 }
 
 // Pid returns Agent process PID if it is started or 0 if it is not.

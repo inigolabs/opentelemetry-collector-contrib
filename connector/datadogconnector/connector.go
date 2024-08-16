@@ -6,8 +6,10 @@ package datadogconnector // import "github.com/open-telemetry/opentelemetry-coll
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/DataDog/datadog-agent/comp/otelcol/otlp/components/statsprocessor"
 	pb "github.com/DataDog/datadog-agent/pkg/proto/pbgo/trace"
 	traceconfig "github.com/DataDog/datadog-agent/pkg/trace/config"
 	"github.com/DataDog/datadog-agent/pkg/trace/timing"
@@ -22,8 +24,6 @@ import (
 	semconv "go.opentelemetry.io/collector/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/metric/noop"
 	"go.uber.org/zap"
-
-	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/datadog"
 )
 
 // traceToMetricConnector is the schema for connector
@@ -33,13 +33,13 @@ type traceToMetricConnector struct {
 
 	// agent specifies the agent used to ingest traces and output APM Stats.
 	// It is implemented by the traceagent structure; replaced in tests.
-	agent datadog.Ingester
+	agent statsprocessor.Ingester
 
 	// translator specifies the translator used to transform APM Stats Payloads
 	// from the agent to OTLP Metrics.
 	translator *metrics.Translator
 
-	resourceAttrs     map[string]string
+	enrichedTags      map[string]string
 	containerTagCache *cache.Cache
 
 	// in specifies the channel through which the agent will output Stats Payloads
@@ -78,24 +78,26 @@ func newTraceToMetricConnector(set component.TelemetrySettings, cfg component.Co
 
 	ctags := make(map[string]string, len(cfg.(*Config).Traces.ResourceAttributesAsContainerTags))
 	for _, val := range cfg.(*Config).Traces.ResourceAttributesAsContainerTags {
-		ctags[val] = ""
+		if v, ok := attributes.ContainerMappings[val]; ok {
+			ctags[v] = ""
+		} else {
+			ctags[val] = ""
+		}
 	}
-	ddtags := attributes.ContainerTagFromAttributes(ctags)
-
 	ctx := context.Background()
 	return &traceToMetricConnector{
 		logger:            set.Logger,
-		agent:             datadog.NewAgentWithConfig(ctx, getTraceAgentCfg(cfg.(*Config).Traces, attributesTranslator), in, metricsClient, timingReporter),
+		agent:             statsprocessor.NewAgentWithConfig(ctx, getTraceAgentCfg(set.Logger, cfg.(*Config).Traces, attributesTranslator), in, metricsClient, timingReporter),
 		translator:        trans,
 		in:                in,
 		metricsConsumer:   metricsConsumer,
-		resourceAttrs:     ddtags,
+		enrichedTags:      ctags,
 		containerTagCache: cache.New(cacheExpiration, cacheCleanupInterval),
 		exit:              make(chan struct{}),
 	}, nil
 }
 
-func getTraceAgentCfg(cfg TracesConfig, attributesTranslator *attributes.Translator) *traceconfig.AgentConfig {
+func getTraceAgentCfg(logger *zap.Logger, cfg TracesConfig, attributesTranslator *attributes.Translator) *traceconfig.AgentConfig {
 	acfg := traceconfig.New()
 	acfg.OTLPReceiver.AttributesTranslator = attributesTranslator
 	acfg.OTLPReceiver.SpanNameRemappings = cfg.SpanNameRemappings
@@ -110,6 +112,13 @@ func getTraceAgentCfg(cfg TracesConfig, attributesTranslator *attributes.Transla
 	}
 	if v := cfg.TraceBuffer; v > 0 {
 		acfg.TraceBuffer = v
+	}
+	if cfg.ComputeTopLevelBySpanKind {
+		logger.Info("traces::compute_top_level_by_span_kind needs to be enabled in both the Datadog connector and Datadog exporter configs if both components are being used")
+		acfg.Features["enable_otlp_compute_top_level_by_span_kind"] = struct{}{}
+	}
+	if v := cfg.BucketInterval; v > 0 {
+		acfg.BucketInterval = v
 	}
 	return acfg
 }
@@ -126,7 +135,7 @@ func (c *traceToMetricConnector) Start(_ context.Context, _ component.Host) erro
 // Shutdown implements the component.Component interface.
 func (c *traceToMetricConnector) Shutdown(context.Context) error {
 	if !c.isStarted {
-		// Note: it is not necessary to manually close c.exit, c.in and c.agent.(*datadog.TraceAgent).exit channels as these are unused.
+		// Note: it is not necessary to manually close c.exit, c.in and c.agent.(*statsprocessor.TraceAgent).exit channels as these are unused.
 		c.logger.Info("Requested shutdown, but not started, ignoring.")
 		return nil
 	}
@@ -145,27 +154,34 @@ func (c *traceToMetricConnector) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: false}
 }
 
+func (c *traceToMetricConnector) addToCache(containerID string, key string) {
+	if tags, ok := c.containerTagCache.Get(containerID); ok {
+		tagList := tags.(*sync.Map)
+		tagList.Store(key, struct{}{})
+	} else {
+		tagList := &sync.Map{}
+		tagList.Store(key, struct{}{})
+		c.containerTagCache.Set(containerID, tagList, cache.DefaultExpiration)
+	}
+}
+
 func (c *traceToMetricConnector) populateContainerTagsCache(traces ptrace.Traces) {
 	for i := 0; i < traces.ResourceSpans().Len(); i++ {
 		rs := traces.ResourceSpans().At(i)
 		attrs := rs.Resource().Attributes()
+
 		containerID, ok := attrs.Get(semconv.AttributeContainerID)
 		if !ok {
 			continue
 		}
 		ddContainerTags := attributes.ContainerTagsFromResourceAttributes(attrs)
-		for attr := range c.resourceAttrs {
+		for attr := range c.enrichedTags {
 			if val, ok := ddContainerTags[attr]; ok {
-				var cacheVal map[string]struct{}
-				if v, ok := c.containerTagCache.Get(containerID.AsString()); ok {
-					cacheVal = v.(map[string]struct{})
-					cacheVal[fmt.Sprintf("%s:%s", attr, val)] = struct{}{}
-				} else {
-					cacheVal = make(map[string]struct{})
-					cacheVal[fmt.Sprintf("%s:%s", attr, val)] = struct{}{}
-					c.containerTagCache.Set(containerID.AsString(), cacheVal, cache.DefaultExpiration)
-				}
-
+				key := fmt.Sprintf("%s:%s", attr, val)
+				c.addToCache(containerID.AsString(), key)
+			} else if incomingVal, ok := attrs.Get(attr); ok {
+				key := fmt.Sprintf("%s:%s", attr, incomingVal.Str())
+				c.addToCache(containerID.AsString(), key)
 			}
 		}
 	}
@@ -181,14 +197,16 @@ func (c *traceToMetricConnector) enrichStatsPayload(stats *pb.StatsPayload) {
 	for _, stat := range stats.Stats {
 		if stat.ContainerID != "" {
 			if tags, ok := c.containerTagCache.Get(stat.ContainerID); ok {
-				tagList := tags.(map[string]struct{})
+
+				tagList := tags.(*sync.Map)
 				for _, tag := range stat.Tags {
-					tagList[tag] = struct{}{}
+					tagList.Store(tag, struct{}{})
 				}
-				stat.Tags = make([]string, 0, len(tagList))
-				for tag := range tagList {
-					stat.Tags = append(stat.Tags, tag)
-				}
+				stat.Tags = make([]string, 0)
+				tagList.Range(func(key, _ any) bool {
+					stat.Tags = append(stat.Tags, key.(string))
+					return true
+				})
 			}
 		}
 	}
@@ -207,7 +225,7 @@ func (c *traceToMetricConnector) run() {
 			var mx pmetric.Metrics
 			var err error
 			// Enrich the stats with container tags
-			if len(c.resourceAttrs) > 0 {
+			if len(c.enrichedTags) > 0 {
 				c.enrichStatsPayload(stats)
 			}
 

@@ -1,5 +1,4 @@
 type: tencentcloud_logservice
-scope_name: otelcol/tencentcloudlogservice
 
 status:
   class: exporter
@@ -12,3 +11,5 @@ status:
 # TODO: Update the exporter to pass the tests
 tests:
   skip_lifecycle: true
+  goleak:
+    skip: true

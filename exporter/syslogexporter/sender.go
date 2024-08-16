@@ -4,12 +4,14 @@
 package syslogexporter // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/syslogexporter"
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
 	"sync"
 
+	"go.opentelemetry.io/collector/config/confignet"
 	"go.uber.org/zap"
 )
 
@@ -41,7 +43,7 @@ type sender struct {
 	conn      net.Conn
 }
 
-func connect(logger *zap.Logger, cfg *Config, tlsConfig *tls.Config) (*sender, error) {
+func connect(ctx context.Context, logger *zap.Logger, cfg *Config, tlsConfig *tls.Config) (*sender, error) {
 	s := &sender{
 		logger:    logger,
 		network:   cfg.Network,
@@ -53,7 +55,7 @@ func connect(logger *zap.Logger, cfg *Config, tlsConfig *tls.Config) (*sender, e
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	err := s.dial()
+	err := s.dial(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -72,21 +74,23 @@ func (s *sender) close() error {
 	return nil
 }
 
-func (s *sender) dial() error {
+func (s *sender) dial(ctx context.Context) error {
 	if s.conn != nil {
 		s.conn.Close()
 		s.conn = nil
 	}
 	var err error
-	if s.tlsConfig != nil && s.network == "tcp" {
-		s.conn, err = tls.Dial(s.network, s.addr, s.tlsConfig)
+	if s.tlsConfig != nil && s.network == string(confignet.TransportTypeTCP) {
+		dialer := tls.Dialer{Config: s.tlsConfig}
+		s.conn, err = dialer.DialContext(ctx, s.network, s.addr)
 	} else {
-		s.conn, err = net.Dial(s.network, s.addr)
+		dialer := new(net.Dialer)
+		s.conn, err = dialer.DialContext(ctx, s.network, s.addr)
 	}
 	return err
 }
 
-func (s *sender) Write(msgStr string) error {
+func (s *sender) Write(ctx context.Context, msgStr string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -95,7 +99,7 @@ func (s *sender) Write(msgStr string) error {
 			return nil
 		}
 	}
-	if err := s.dial(); err != nil {
+	if err := s.dial(ctx); err != nil {
 		return err
 	}
 

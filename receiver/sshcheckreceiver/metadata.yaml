@@ -1,14 +1,12 @@
 type: sshcheck
-scope_name: otelcol/sshcheckreceiver
 
 status:
   class: receiver
   stability:
     alpha: [metrics]
-  distributions: [contrib, sumo]
+  distributions: [contrib]
   codeowners:
     active: [nslaughter, codeboten]
-  unsupported_platforms: [windows]
 
 resource_attributes:
   ssh.endpoint:
@@ -28,7 +26,7 @@ metrics:
       value_type: int
       aggregation_temporality: cumulative
       monotonic: false
-    unit: 1
+    unit: "1"
   sshcheck.duration:
     description: Measures the duration of SSH connection.
     enabled: true
@@ -51,7 +49,7 @@ metrics:
       value_type: int
       aggregation_temporality: cumulative
       monotonic: false
-    unit: 1
+    unit: "1"
   sshcheck.sftp_duration:
     description: Measures SFTP request duration.
     enabled: false

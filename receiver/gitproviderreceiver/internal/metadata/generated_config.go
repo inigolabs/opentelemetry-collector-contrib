@@ -2,7 +2,10 @@
 
 package metadata
 
-import "go.opentelemetry.io/collector/confmap"
+import (
+	"go.opentelemetry.io/collector/confmap"
+	"go.opentelemetry.io/collector/filter"
+)
 
 // MetricConfig provides common config for a particular metric.
 type MetricConfig struct {
@@ -25,40 +28,56 @@ func (ms *MetricConfig) Unmarshal(parser *confmap.Conf) error {
 
 // MetricsConfig provides config for gitprovider metrics.
 type MetricsConfig struct {
-	GitRepositoryBranchCount             MetricConfig `mapstructure:"git.repository.branch.count"`
-	GitRepositoryContributorCount        MetricConfig `mapstructure:"git.repository.contributor.count"`
-	GitRepositoryCount                   MetricConfig `mapstructure:"git.repository.count"`
-	GitRepositoryPullRequestApprovedTime MetricConfig `mapstructure:"git.repository.pull_request.approved.time"`
-	GitRepositoryPullRequestMergedCount  MetricConfig `mapstructure:"git.repository.pull_request.merged.count"`
-	GitRepositoryPullRequestMergedTime   MetricConfig `mapstructure:"git.repository.pull_request.merged.time"`
-	GitRepositoryPullRequestOpenCount    MetricConfig `mapstructure:"git.repository.pull_request.open.count"`
-	GitRepositoryPullRequestOpenTime     MetricConfig `mapstructure:"git.repository.pull_request.open.time"`
+	VcsRepositoryChangeCount          MetricConfig `mapstructure:"vcs.repository.change.count"`
+	VcsRepositoryChangeTimeOpen       MetricConfig `mapstructure:"vcs.repository.change.time_open"`
+	VcsRepositoryChangeTimeToApproval MetricConfig `mapstructure:"vcs.repository.change.time_to_approval"`
+	VcsRepositoryChangeTimeToMerge    MetricConfig `mapstructure:"vcs.repository.change.time_to_merge"`
+	VcsRepositoryContributorCount     MetricConfig `mapstructure:"vcs.repository.contributor.count"`
+	VcsRepositoryCount                MetricConfig `mapstructure:"vcs.repository.count"`
+	VcsRepositoryRefCount             MetricConfig `mapstructure:"vcs.repository.ref.count"`
+	VcsRepositoryRefLinesAdded        MetricConfig `mapstructure:"vcs.repository.ref.lines_added"`
+	VcsRepositoryRefLinesDeleted      MetricConfig `mapstructure:"vcs.repository.ref.lines_deleted"`
+	VcsRepositoryRefRevisionsAhead    MetricConfig `mapstructure:"vcs.repository.ref.revisions_ahead"`
+	VcsRepositoryRefRevisionsBehind   MetricConfig `mapstructure:"vcs.repository.ref.revisions_behind"`
+	VcsRepositoryRefTime              MetricConfig `mapstructure:"vcs.repository.ref.time"`
 }
 
 func DefaultMetricsConfig() MetricsConfig {
 	return MetricsConfig{
-		GitRepositoryBranchCount: MetricConfig{
+		VcsRepositoryChangeCount: MetricConfig{
 			Enabled: true,
 		},
-		GitRepositoryContributorCount: MetricConfig{
+		VcsRepositoryChangeTimeOpen: MetricConfig{
+			Enabled: true,
+		},
+		VcsRepositoryChangeTimeToApproval: MetricConfig{
+			Enabled: true,
+		},
+		VcsRepositoryChangeTimeToMerge: MetricConfig{
+			Enabled: true,
+		},
+		VcsRepositoryContributorCount: MetricConfig{
 			Enabled: false,
 		},
-		GitRepositoryCount: MetricConfig{
+		VcsRepositoryCount: MetricConfig{
 			Enabled: true,
 		},
-		GitRepositoryPullRequestApprovedTime: MetricConfig{
+		VcsRepositoryRefCount: MetricConfig{
 			Enabled: true,
 		},
-		GitRepositoryPullRequestMergedCount: MetricConfig{
+		VcsRepositoryRefLinesAdded: MetricConfig{
 			Enabled: true,
 		},
-		GitRepositoryPullRequestMergedTime: MetricConfig{
+		VcsRepositoryRefLinesDeleted: MetricConfig{
 			Enabled: true,
 		},
-		GitRepositoryPullRequestOpenCount: MetricConfig{
+		VcsRepositoryRefRevisionsAhead: MetricConfig{
 			Enabled: true,
 		},
-		GitRepositoryPullRequestOpenTime: MetricConfig{
+		VcsRepositoryRefRevisionsBehind: MetricConfig{
+			Enabled: true,
+		},
+		VcsRepositoryRefTime: MetricConfig{
 			Enabled: true,
 		},
 	}
@@ -67,6 +86,13 @@ func DefaultMetricsConfig() MetricsConfig {
 // ResourceAttributeConfig provides common config for a particular resource attribute.
 type ResourceAttributeConfig struct {
 	Enabled bool `mapstructure:"enabled"`
+	// Experimental: MetricsInclude defines a list of filters for attribute values.
+	// If the list is not empty, only metrics with matching resource attribute values will be emitted.
+	MetricsInclude []filter.Config `mapstructure:"metrics_include"`
+	// Experimental: MetricsExclude defines a list of filters for attribute values.
+	// If the list is not empty, metrics with matching resource attribute values will not be emitted.
+	// MetricsInclude has higher priority than MetricsExclude.
+	MetricsExclude []filter.Config `mapstructure:"metrics_exclude"`
 
 	enabledSetByUser bool
 }
@@ -85,16 +111,16 @@ func (rac *ResourceAttributeConfig) Unmarshal(parser *confmap.Conf) error {
 
 // ResourceAttributesConfig provides config for gitprovider resource attributes.
 type ResourceAttributesConfig struct {
-	GitVendorName    ResourceAttributeConfig `mapstructure:"git.vendor.name"`
 	OrganizationName ResourceAttributeConfig `mapstructure:"organization.name"`
+	VcsVendorName    ResourceAttributeConfig `mapstructure:"vcs.vendor.name"`
 }
 
 func DefaultResourceAttributesConfig() ResourceAttributesConfig {
 	return ResourceAttributesConfig{
-		GitVendorName: ResourceAttributeConfig{
+		OrganizationName: ResourceAttributeConfig{
 			Enabled: true,
 		},
-		OrganizationName: ResourceAttributeConfig{
+		VcsVendorName: ResourceAttributeConfig{
 			Enabled: true,
 		},
 	}

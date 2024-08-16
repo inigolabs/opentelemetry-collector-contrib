@@ -136,43 +136,8 @@ resourceMetrics:
                   timeUnixNano: "2000000"
             name: postgresql.wal.age
             unit: s
-          - description: Time between flushing recent WAL locally and receiving notification that the standby server has completed an operation with it.
-            gauge:
-              dataPoints:
-                - asInt: "600"
-                  attributes:
-                    - key: operation
-                      value:
-                        stringValue: flush
-                    - key: replication_client
-                      value:
-                        stringValue: unix
-                  startTimeUnixNano: "1000000"
-                  timeUnixNano: "2000000"
-                - asInt: "700"
-                  attributes:
-                    - key: operation
-                      value:
-                        stringValue: replay
-                    - key: replication_client
-                      value:
-                        stringValue: unix
-                  startTimeUnixNano: "1000000"
-                  timeUnixNano: "2000000"
-                - asInt: "800"
-                  attributes:
-                    - key: operation
-                      value:
-                        stringValue: write
-                    - key: replication_client
-                      value:
-                        stringValue: unix
-                  startTimeUnixNano: "1000000"
-                  timeUnixNano: "2000000"
-            name: postgresql.wal.lag
-            unit: s
         scope:
-          name: otelcol/postgresqlreceiver
+          name: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/postgresqlreceiver
           version: latest
   - resource:
       attributes:
@@ -229,7 +194,7 @@ resourceMetrics:
                   timeUnixNano: "2000000"
             unit: '{table}'
         scope:
-          name: otelcol/postgresqlreceiver
+          name: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/postgresqlreceiver
           version: latest
   - resource:
       attributes:
@@ -382,7 +347,7 @@ resourceMetrics:
               isMonotonic: true
             unit: '{vacuums}'
         scope:
-          name: otelcol/postgresqlreceiver
+          name: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/postgresqlreceiver
           version: latest
   - resource:
       attributes:
@@ -535,7 +500,7 @@ resourceMetrics:
               isMonotonic: true
             unit: '{vacuums}'
         scope:
-          name: otelcol/postgresqlreceiver
+          name: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/postgresqlreceiver
           version: latest
   - resource:
       attributes:
@@ -572,7 +537,7 @@ resourceMetrics:
             name: postgresql.index.size
             unit: By
         scope:
-          name: otelcol/postgresqlreceiver
+          name: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/postgresqlreceiver
           version: latest
   - resource:
       attributes:
@@ -609,5 +574,5 @@ resourceMetrics:
             name: postgresql.index.size
             unit: By
         scope:
-          name: otelcol/postgresqlreceiver
+          name: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/postgresqlreceiver
           version: latest

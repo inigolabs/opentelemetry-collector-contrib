@@ -1,11 +1,10 @@
 type: deltatorate
-scope_name: otelcol/deltatorate
 
 status:
   class: processor
   stability:
-    development: [metrics]
-  distributions: [contrib, observiq, sumo, aws]
+    alpha: [metrics]
+  distributions: [contrib]
   codeowners:
     active: [Aneurysm9]
 tests:

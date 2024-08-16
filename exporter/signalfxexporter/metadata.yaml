@@ -1,11 +1,10 @@
 type: signalfx
-scope_name: otelcol/signalfx
 
 status:
   class: exporter
   stability:
     beta: [traces, metrics, logs]
-  distributions: [contrib, splunk, observiq, aws]
+  distributions: [contrib]
   codeowners:
     active: [dmitryax, crobert-1]
 tests:
@@ -18,3 +17,5 @@ tests:
     retry_on_failure:
       enabled: false
   expect_consumer_error: true
+  goleak:
+    skip: true

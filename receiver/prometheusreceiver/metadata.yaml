@@ -1,5 +1,4 @@
 type: prometheus
-scope_name: otelcol/prometheusreceiver
 
 status:
   class: receiver
@@ -8,12 +7,6 @@ status:
   distributions:
   - core
   - contrib
-  - aws
-  - grafana
-  - observiq
-  - splunk
-  - sumo
-  - liatrio
   codeowners:
     active: [Aneurysm9, dashpole]
 tests:
@@ -21,3 +14,8 @@ tests:
     config:
       scrape_configs:
         - job_name: 'test'
+  goleak:
+    ignore:
+      top:
+        # See https://github.com/census-instrumentation/opencensus-go/issues/1191 for more information.
+        - "go.opencensus.io/stats/view.(*worker).start"

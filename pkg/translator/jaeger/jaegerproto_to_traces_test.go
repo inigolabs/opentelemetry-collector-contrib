@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	conventions "go.opentelemetry.io/collector/semconv/v1.9.0"
+	conventions "go.opentelemetry.io/collector/semconv/v1.16.0"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal/idutils"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal/testdata"
@@ -168,7 +168,7 @@ func TestJTagsToInternalAttributes(t *testing.T) {
 	expected.PutInt("int-val", 123)
 	expected.PutStr("string-val", "abc")
 	expected.PutDouble("double-val", 1.23)
-	expected.PutStr("binary-val", "AAAAAABkfZg=")
+	expected.PutEmptyBytes("binary-val").FromRaw([]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x7D, 0x98})
 
 	got := pcommon.NewMap()
 	jTagsToInternalAttributes(tags, got)
@@ -327,11 +327,11 @@ func TestProtoBatchToInternalTracesWithTwoLibraries(t *testing.T) {
 				OperationName: "operation2",
 				Tags: []model.KeyValue{
 					{
-						Key:   conventions.OtelLibraryName,
+						Key:   conventions.AttributeOtelScopeName,
 						VType: model.ValueType_STRING,
 						VStr:  "library2",
 					}, {
-						Key:   conventions.OtelLibraryVersion,
+						Key:   conventions.AttributeOtelScopeVersion,
 						VType: model.ValueType_STRING,
 						VStr:  "0.42.0",
 					},
@@ -344,11 +344,11 @@ func TestProtoBatchToInternalTracesWithTwoLibraries(t *testing.T) {
 				OperationName: "operation1",
 				Tags: []model.KeyValue{
 					{
-						Key:   conventions.OtelLibraryName,
+						Key:   conventions.AttributeOtelScopeName,
 						VType: model.ValueType_STRING,
 						VStr:  "library1",
 					}, {
-						Key:   conventions.OtelLibraryVersion,
+						Key:   conventions.AttributeOtelScopeVersion,
 						VType: model.ValueType_STRING,
 						VStr:  "0.42.0",
 					},
@@ -536,7 +536,7 @@ func TestProtoBatchesToInternalTraces(t *testing.T) {
 	for i := 0; i < lenbatches; i++ {
 		rsExpected := expected.ResourceSpans().At(i)
 		for j := 0; j < lenbatches; j++ {
-			got.ResourceSpans().RemoveIf(func(rs ptrace.ResourceSpans) bool {
+			got.ResourceSpans().RemoveIf(func(_ ptrace.ResourceSpans) bool {
 				nameExpected := rsExpected.ScopeSpans().At(0).Spans().At(0).Name()
 				nameGot := got.ResourceSpans().At(j).ScopeSpans().At(0).Scope().Name()
 				if nameExpected == nameGot {
@@ -782,11 +782,11 @@ func generateProtoSpanWithLibraryInfo(libraryName string) *model.Span {
 	span := generateProtoSpan()
 	span.Tags = append([]model.KeyValue{
 		{
-			Key:   conventions.OtelLibraryName,
+			Key:   conventions.AttributeOtelScopeName,
 			VType: model.ValueType_STRING,
 			VStr:  libraryName,
 		}, {
-			Key:   conventions.OtelLibraryVersion,
+			Key:   conventions.AttributeOtelScopeVersion,
 			VType: model.ValueType_STRING,
 			VStr:  "0.42.0",
 		},
