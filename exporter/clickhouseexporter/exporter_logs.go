@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS %s %s (
 	TraceFlags UInt8,
 	SeverityText LowCardinality(String) CODEC(ZSTD(1)),
 	SeverityNumber UInt8,
+	OrgID Int64,
 	ServiceName LowCardinality(String) CODEC(ZSTD(1)),
 	Body String CODEC(ZSTD(1)),
 	ResourceSchemaUrl LowCardinality(String) CODEC(ZSTD(1)),
